@@ -1,7 +1,7 @@
 name: Build and publish update
 
 # Push a tag like v1.0.1 -> this builds the Windows installer and publishes it
-# as a GitHub Release. Installed copies of the app download it automatically.
+# as ONE GitHub Release. Installed copies of the app download it automatically.
 on:
   push:
     tags: ['v*']
@@ -12,6 +12,9 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -29,13 +32,32 @@ jobs:
         run: npm run smoke
 
       - name: Use the tag as the version number and this repo for updates
-        shell: bash
         run: |
           npm pkg set version="${GITHUB_REF_NAME#v}"
           npm pkg set build.publish.owner="${GITHUB_REPOSITORY_OWNER}"
           npm pkg set build.publish.repo="${GITHUB_REPOSITORY#*/}"
+          npm pkg set build.nsis.artifactName='Crockery-Store-Manager-Setup-${version}.${ext}'
 
-      - name: Build installer and publish release
+      - name: Build installer
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: Check the installer files exist
+        run: |
+          ls -la dist
+          test -f dist/latest.yml
+          test -f "dist/Crockery-Store-Manager-Setup-${GITHUB_REF_NAME#v}.exe"
+          test -f "dist/Crockery-Store-Manager-Setup-${GITHUB_REF_NAME#v}.exe.blockmap"
+          cat dist/latest.yml
+
+      - name: Publish ONE release with all files
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --x64 --publish always
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          VER="${TAG#v}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$VER" --notes "Version $VER" --verify-tag
+          gh release upload "$TAG" \
+            "dist/Crockery-Store-Manager-Setup-$VER.exe" \
+            "dist/Crockery-Store-Manager-Setup-$VER.exe.blockmap" \
+            dist/latest.yml --clobber
