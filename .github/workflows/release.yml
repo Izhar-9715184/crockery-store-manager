@@ -1,0 +1,41 @@
+name: Build and publish update
+
+# Push a tag like v1.0.1 -> this builds the Windows installer and publishes it
+# as a GitHub Release. Installed copies of the app download it automatically.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Database / business-logic tests
+        run: npm test
+
+      - name: Smoke test (starts the real app and checks it loads)
+        run: npm run smoke
+
+      - name: Use the tag as the version number and this repo for updates
+        shell: bash
+        run: |
+          npm pkg set version="${GITHUB_REF_NAME#v}"
+          npm pkg set build.publish.owner="${GITHUB_REPOSITORY_OWNER}"
+          npm pkg set build.publish.repo="${GITHUB_REPOSITORY#*/}"
+
+      - name: Build installer and publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --x64 --publish always

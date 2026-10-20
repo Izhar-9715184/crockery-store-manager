@@ -1,0 +1,63 @@
+{
+  "name": "crockery-store-manager",
+  "productName": "Crockery Store Manager",
+  "version": "1.0.0",
+  "description": "Stock, sales, customers and udhar management for a crockery shop",
+  "main": "main.js",
+  "author": "Your Name",
+  "license": "UNLICENSED",
+  "private": true,
+  "repository": "github:Izhar-9715184/crockery-store-manager",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/core.test.js",
+    "smoke": "electron . --smoke-test",
+    "dist": "electron-builder --win --x64 --publish never",
+    "release": "electron-builder --win --x64 --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
+  },
+  "devDependencies": {
+    "electron": "^39.8.10",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.crockerystore.manager",
+    "productName": "Crockery Store Manager",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Crockery Store Manager"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Izhar-9715184",
+      "repo": "crockery-store-manager",
+      "releaseType": "release"
+    }
+  }
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crockery Store Manager</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <div class="brand-name" id="brandName">Crockery Store</div>
+          <div class="brand-sub">Manager</div>
+        </div>
+      </div>
+      <nav id="nav"></nav>
+      <div class="sidebar-foot">
+        <div id="versionLabel">v–</div>
+        <div id="updateDot" class="update-dot" hidden>Update ready</div>
+      </div>
+    </aside>
+    <main class="main">
+      <div id="banners"></div>
+      <div id="page" class="page"></div>
+    </main>
+  </div>
+  <div id="toasts" aria-live="polite"></div>
+  <div id="print-area"></div>
+
+  <script src="util.js"></script>
+  <script src="page-dashboard.js"></script>
+  <script src="page-sale.js"></script>
+  <script src="page-sales.js"></script>
+  <script src="page-products.js"></script>
+  <script src="page-customers.js"></script>
+  <script src="page-reports.js"></script>
+  <script src="page-settings.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
