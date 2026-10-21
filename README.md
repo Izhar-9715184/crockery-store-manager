@@ -18,7 +18,57 @@ Crockery shop ke liye Windows software: **stock, sales (bill), customers, udhar 
 | **Products & Stock** | Product add/edit, maal aaya (Stock in), toota/gum hua (Adjust), shelf count theek karna, har product ki history |
 | **Customers & Udhar** | Customer list, udhar ka ledger, **payment wasool karna**, statement print karna, purana udhar likhna |
 | **Reports** | Din-ba-din sale/cash/udhar/profit, best selling items, stock report, udhar list (CSV export aur print) |
-| **Settings** | Dukaan ka naam/phone/address, invoice size (A4 ya thermal), backups, update status |
+| **Settings** | Dukaan ka naam/phone/address, invoice size (A4 ya thermal), backups, update status, **Mobile access** |
+
+### Mobile par istemal (dukaan ke WiFi par)
+
+Phone ke browser mein wahi dukaan ka data: **sale/bill banana, stock dalna (maal aaya, toota, count theek, naya product, price), udhar wasool karna, aaj ki sale dekhna**. Phone ko laptop ke database se seedha jora jata hai, is liye phone aur laptop mein data hamesha aik jaisa rehta hai.
+
+**Aik dafa setup (laptop par):**
+1. Software mein **Settings → Mobile access** kholein.
+2. Apna **PIN** likhein (kam az kam 6 characters) aur **Save** dabayein. Status **ON** ho jayega.
+3. Wahan likhay hue address (jaise `http://192.168.1.5:8765`) note karein.
+4. Pehli dafa Windows **Firewall** poochay to **Allow access** dabayein (**Private networks** tick rakhein).
+
+**Phone par:**
+1. Phone ko **dukaan ke usi WiFi** se jorein jis par laptop hai.
+2. Chrome mein wo address kholein, PIN likhein.
+3. Chrome ke menu (⋮) mein **Add to Home screen** dabayein. Ab phone par icon aa jayega.
+
+**Yaad rakhein:**
+- Laptop **on** aur software **khula** hona chahiye, warna phone connect nahi hoga.
+- Ye sirf dukaan ke WiFi par chalta hai, bahar internet se nahi.
+- PIN 5 dafa galat likhne par phone kuch der ke liye band ho jata hai. PIN badalne se sab phones logout ho jate hain.
+- Phone se settings, backup/restore ya delete jaisay kaam nahi ho sakte, wo sirf laptop se hote hain.
+
+---
+
+### Bazaar se maal ki entry (Tareeqa 2: bina internet, phone se laptop tak)
+
+Jab aap wholesale market mein hon aur signal na ho:
+
+1. **Aik dafa (internet ke saath):** phone par `https://izhar-9715184.github.io/crockery-store-manager/` kholein, aur browser menu se **Add to Home screen** karein. Is ke baad ye page bina internet ke bhi khulta hai.
+2. Market mein page kholein, supplier ka naam likhein, aur har cheez ka naam, quantity aur kharid qeemat daalte jayein. List phone mein save rehti hai.
+3. Entry mukammal ho to **Send** dabayein aur WhatsApp (ya SMS/email) se apne aap ko / dukaan ko bhej dein. Ye aik hi message hota hai (`CROCKERY-MAAL:...`). Message poora copy hona chahiye; adha kata hua ho to laptop mana kar deta hai.
+4. Laptop software mein **Products → Import from phone** dabayein, message paste karein. Software har line ko maujooda product se milata hai; aap check karke **Import now** dabayein. Stock aur kharid qeemat update ho jati hai.
+5. Aik hi message dobara import nahi hota (double entry se bachao).
+6. Optional: laptop par **Products → Product list for phone** se list bana kar phone mein load kar lein, to naam likhte waqt suggestions aur dukaan ka rate nazar aata hai.
+
+**GitHub Pages aik dafa on karein:** repository → Settings → Pages → Branch `main`, folder `/docs` → Save. Kuch minute baad upar wala link chal jata hai.
+
+### Windows 7 / 8 / 8.1 ke liye alag installer
+
+Tag lagane par (misal `v1.0.4`) GitHub aik hi Release mein **teen** installer banata hai:
+
+| File | Kis Windows ke liye |
+|---|---|
+| `Crockery-Store-Manager-Setup-<ver>.exe` | Windows 10 / 11 |
+| `Crockery-Store-Manager-Win7-8-64bit-Setup-<ver>.exe` | Windows 7 / 8 / 8.1, **64-bit** |
+| `Crockery-Store-Manager-Win7-8-32bit-Setup-<ver>.exe` | Windows 7 / 8 / 8.1, **32-bit** |
+
+32 ya 64 bit kaise dekhein: Windows 8 mein *PC → Properties* (Windows 7 mein *Computer → Properties*) mein **System type** likha hota hai. Agar pata na chale to 32-bit wala install karein, wo dono par chalta hai.
+
+Har installer apne hi channel se update hota hai, is liye Windows 8 wale laptop ko Windows 10 wala program kabhi nahi milta. Purane Windows ke liye Electron 22 use hota hai jis ko ab security updates nahi milte; in laptops ko sirf dukaan ke kaam ke liye rakhein.
 
 ---
 
@@ -125,6 +175,8 @@ Commands: `npm install` · `npm start` (chalana) · `npm test` (tests) · `npm r
 ---
 
 ## 7. Jo cheez abhi verify nahi hui (sach baat)
+
+Windows 7/8 wale installers bhi yahan build ya chala kar nahi dekhe gaye. GitHub par smoke test chalta hai, lekin **asal Windows 7/8 PC par install karke aik sale zaroor test karein**, phir client ko dein.
 
 Is software ka database aur screens poori tarah test hue hain (13 database tests + browser mein poora UI test). Lekin jis environment mein ye bana, wahan Electron aur installer builder download nahi ho sakte the, is liye **ye cheezein pehli dafa asal Windows par chalni hain**: Electron window, installer (`.exe`), aur auto-update.
 

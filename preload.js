@@ -18,5 +18,7 @@ contextBridge.exposeInMainWorld('sys', {
   backupTo: () => ipcRenderer.invoke('sys:backupTo'),
   restore: () => ipcRenderer.invoke('sys:restore'),
   openBackups: () => ipcRenderer.invoke('sys:openBackups'),
+  mobileStatus: () => ipcRenderer.invoke('sys:mobileStatus'),
+  mobileApply: (opts) => ipcRenderer.invoke('sys:mobileApply', opts),
   onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_e, s) => cb(s)),
 });

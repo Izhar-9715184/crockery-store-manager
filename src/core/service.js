@@ -4,7 +4,9 @@
  * Every function that changes data runs inside one database transaction, so a
  * sale is either saved completely (stock + ledger + invoice) or not at all.
  */
+const crypto = require('crypto');
 const { dateStr } = require('./db');
+const Packing = require('../../docs/packing.js'); // same code the phone page uses
 
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const RE_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -30,8 +32,13 @@ function createService(store) {
   const S = {};
 
   // ------------------------------------------------------------ settings
+  // keys starting with "secret_" (e.g. the mobile PIN hash) are never sent to any screen
   S.getSettings = () =>
-    Object.fromEntries(store.all('SELECT key, value FROM settings').map((r) => [r.key, r.value]));
+    Object.fromEntries(
+      store.all('SELECT key, value FROM settings')
+        .filter((r) => !r.key.startsWith('secret_'))
+        .map((r) => [r.key, r.value])
+    );
 
   const ALLOWED_SETTINGS = [
     'shop_name', 'shop_address', 'shop_phone', 'invoice_prefix',
@@ -465,6 +472,151 @@ function createService(store) {
     const p = store.backup('manual');
     return { path: p };
   };
+  // ------------------------------------------------------------ mobile access (PIN)
+  const rawSetting = (k) => (store.get('SELECT value FROM settings WHERE key=?', k) || {}).value;
+  const putSetting = (k, v) =>
+    store.run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', k, String(v));
+  const scrypt = (pin, saltHex) => crypto.scryptSync(String(pin), Buffer.from(saltHex, 'hex'), 32);
+
+  S.getMobileConfig = () => ({
+    enabled: rawSetting('mobile_enabled') === '1',
+    port: Number(rawSetting('mobile_port') || 8765),
+    hasPin: !!rawSetting('secret_mobile_pin_hash'),
+  });
+
+  /** Turn mobile access on/off, change the port, or set a new PIN (min 6 characters). */
+  S.setMobileAccess = ({ enabled, port, pin } = {}) =>
+    store.tx(() => {
+      if (port !== undefined && port !== '' && port !== null) {
+        const p = Number(port);
+        if (!Number.isInteger(p) || p < 1024 || p > 65535) fail('Port must be a number between 1024 and 65535');
+        putSetting('mobile_port', p);
+      }
+      if (pin !== undefined && pin !== '' && pin !== null) {
+        const pinStr = String(pin);
+        if (pinStr.length < 6) fail('The PIN must be at least 6 characters');
+        const salt = crypto.randomBytes(16).toString('hex');
+        putSetting('secret_mobile_pin_salt', salt);
+        putSetting('secret_mobile_pin_hash', scrypt(pinStr, salt).toString('hex'));
+      }
+      if (enabled !== undefined) {
+        if (enabled && !rawSetting('secret_mobile_pin_hash')) fail('Set a PIN first');
+        putSetting('mobile_enabled', enabled ? '1' : '0');
+      }
+      return S.getMobileConfig();
+    });
+
+  S.checkMobilePin = (pin) => {
+    const salt = rawSetting('secret_mobile_pin_salt');
+    const hash = rawSetting('secret_mobile_pin_hash');
+    if (!salt || !hash) return false;
+    return crypto.timingSafeEqual(scrypt(pin, salt), Buffer.from(hash, 'hex'));
+  };
+  /** Changes whenever the PIN changes -> old phone logins stop working. */
+  S.mobilePinFingerprint = () => rawSetting('secret_mobile_pin_hash') || '';
+
+  // ------------------------------------------------------------ purchases entered on the phone
+  // The phone page works offline in the wholesale market and produces one text
+  // message (see docs/packing.js). Here it is checked, matched to products and
+  // turned into "stock in" entries.
+  const PREFIX_MAAL = 'CROCKERY-MAAL';
+  const PREFIX_PRODUCTS = 'CROCKERY-PRODUCTS';
+  const normName = (s) => clean(s).toLowerCase().replace(/\s+/g, ' ');
+
+  function readBatch(text) {
+    const b = Packing.unpack(text, PREFIX_MAAL);
+    if (!b || b.v !== 1 || !Array.isArray(b.lines)) fail('This is not a purchase list from the phone');
+    if (typeof b.id !== 'string' || !/^[A-Za-z0-9_-]{4,64}$/.test(b.id)) fail('This list has no valid number');
+    if (!RE_DATE.test(String(b.date || ''))) fail('The date in this list is invalid');
+    if (b.lines.length < 1 || b.lines.length > 500) fail('A list must have between 1 and 500 lines');
+    const lines = b.lines.map((l, i) => {
+      const name = clean(l.n).slice(0, 200);
+      const q = Number(l.q);
+      const c = Number(l.c);
+      const s = l.s === undefined || l.s === null || l.s === '' ? null : Number(l.s);
+      if (!name) fail(`Line ${i + 1}: product name is missing`);
+      if (!Number.isFinite(q) || q <= 0 || q > 1e6) fail(`Line ${i + 1} (${name}): quantity is invalid`);
+      if (!Number.isFinite(c) || c < 0 || c > 1e9) fail(`Line ${i + 1} (${name}): cost price is invalid`);
+      if (s !== null && (!Number.isFinite(s) || s < 0 || s > 1e9)) fail(`Line ${i + 1} (${name}): sale price is invalid`);
+      return { name, qty: q, cost: r2(c), sale_price: s === null ? null : r2(s) };
+    });
+    return { id: b.id, date: b.date, supplier: clean(b.supplier).slice(0, 100), lines };
+  }
+
+  function findProduct(products, name) {
+    const n = normName(name);
+    return products.find((p) => normName(p.name) === n) || products.find((p) => p.code && normName(p.code) === n) || null;
+  }
+
+  /** Checks the message and shows what would happen. Changes nothing. */
+  S.previewPurchaseImport = (text) => {
+    const batch = readBatch(text);
+    const products = store.all('SELECT id, code, name, stock, cost_price, sale_price FROM products WHERE active = 1 ORDER BY name COLLATE NOCASE');
+    const done = store.get('SELECT * FROM purchase_imports WHERE id = ?', batch.id);
+    const lines = batch.lines.map((l, index) => {
+      const match = findProduct(products, l.name);
+      const n = normName(l.name);
+      const suggestions = match ? [] : products
+        .filter((p) => n.length >= 3 && (normName(p.name).includes(n) || n.includes(normName(p.name))))
+        .slice(0, 3).map((p) => ({ id: p.id, name: p.name }));
+      return { index, ...l, match, suggestions };
+    });
+    return {
+      id: batch.id, date: batch.date, supplier: batch.supplier,
+      alreadyImported: done ? { imported_at: done.imported_at } : null,
+      lines,
+      totalQty: lines.reduce((s, l) => s + l.qty, 0),
+      totalAmount: r2(lines.reduce((s, l) => s + l.qty * l.cost, 0)),
+    };
+  };
+
+  /**
+   * decisions[i] = { action: 'match', product_id } | { action: 'new', sale_price? } | { action: 'skip' }
+   * Everything happens in one transaction, and the list is remembered so it cannot be imported twice.
+   */
+  S.applyPurchaseImport = ({ text, decisions }) =>
+    store.tx(() => {
+      const batch = readBatch(text);
+      const done = store.get('SELECT * FROM purchase_imports WHERE id = ?', batch.id);
+      if (done) fail(`This list was already imported on ${done.imported_at.slice(0, 16)}. Nothing was added again.`);
+      if (!Array.isArray(decisions) || decisions.length !== batch.lines.length) fail('Please review every line before importing');
+      let created = 0;
+      let skipped = 0;
+      let qtyAdded = 0;
+      let amount = 0;
+      batch.lines.forEach((l, i) => {
+        const d = decisions[i] || {};
+        if (d.action === 'skip') { skipped++; return; }
+        let productId;
+        if (d.action === 'match') {
+          productId = Number(d.product_id);
+          if (!store.get('SELECT id FROM products WHERE id = ? AND active = 1', productId)) fail(`Line ${i + 1}: the chosen product no longer exists`);
+        } else if (d.action === 'new') {
+          const sale = d.sale_price === undefined || d.sale_price === '' || d.sale_price === null ? l.sale_price : Number(d.sale_price);
+          productId = S.saveProduct({ name: l.name, cost_price: l.cost, sale_price: sale === null || sale === undefined ? 0 : sale, stock: 0 }).id;
+          created++;
+        } else fail(`Line ${i + 1}: please choose what to do`);
+        S.stockIn({ product_id: productId, qty: l.qty, cost_price: l.cost, supplier: batch.supplier, date: batch.date, note: `Phone list ${batch.id}` });
+        qtyAdded += l.qty;
+        amount += l.qty * l.cost;
+      });
+      if (skipped === batch.lines.length) fail('Every line was skipped, so there is nothing to import');
+      store.run(
+        'INSERT INTO purchase_imports(id,batch_date,supplier,lines,total_qty,total_amount) VALUES(?,?,?,?,?,?)',
+        batch.id, batch.date, batch.supplier, batch.lines.length - skipped, qtyAdded, r2(amount)
+      );
+      return { imported: batch.lines.length - skipped, skipped, created, totalQty: qtyAdded, totalAmount: r2(amount) };
+    });
+
+  S.listPurchaseImports = () => store.all('SELECT * FROM purchase_imports ORDER BY imported_at DESC LIMIT 50');
+
+  /** Product names for the phone page's suggestion list. Returns one line of text. */
+  S.exportProductsForPhone = () => {
+    const items = store.all('SELECT name, code, cost_price, sale_price FROM products WHERE active = 1 ORDER BY name COLLATE NOCASE')
+      .map((p) => ({ n: p.name, k: p.code || '', c: p.cost_price, s: p.sale_price }));
+    return { count: items.length, text: Packing.pack(PREFIX_PRODUCTS, { v: 1, items }) };
+  };
+
   S.dbInfo = () => ({
     file: store.file,
     folder: store.dir,

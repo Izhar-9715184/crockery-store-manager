@@ -1,0 +1,14 @@
+{
+  "name": "Maal Entry",
+  "short_name": "Maal Entry",
+  "description": "Write down the stock you buy at the wholesale market, even without internet, and send it to the shop laptop.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f1ec",
+  "theme_color": "#14343b",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

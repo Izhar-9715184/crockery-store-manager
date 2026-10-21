@@ -89,7 +89,7 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .icon-btn { border: 0; background: none; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; padding: 4px 8px; border-radius: 6px; }
 .icon-btn:hover { background: var(--line-soft); color: var(--ink); }
-input[type=text], input[type=number], input[type=date], input[type=search], input[type=tel], select, textarea {
+input[type=text], input[type=number], input[type=date], input[type=search], input[type=tel], input[type=password], select, textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; outline: none;
 }
 input:focus, select:focus, textarea:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(31,122,120,.15); }

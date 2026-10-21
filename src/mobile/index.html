@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14343b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Crockery">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" href="icon-192.png">
+  <link rel="stylesheet" href="m.css">
+  <title>Crockery Store</title>
+</head>
+<body>
+  <div id="login" hidden>
+    <form id="loginForm" class="login-card" autocomplete="off">
+      <div class="mark" aria-hidden="true"></div>
+      <h1 id="loginShop">Crockery Store</h1>
+      <p class="muted">Enter your PIN</p>
+      <input id="pin" type="password" inputmode="text" autocomplete="current-password" placeholder="PIN" required>
+      <div id="loginErr" class="err" role="alert"></div>
+      <button class="btn primary block" type="submit">Open</button>
+    </form>
+  </div>
+  <div id="app" hidden>
+    <header class="topbar"><div><div id="barTitle" class="bar-title">Today</div><div id="barShop" class="bar-sub"></div></div>
+      <button id="refresh" class="icon" aria-label="Refresh">↻</button></header>
+    <main id="view"></main>
+    <nav id="tabs"></nav>
+  </div>
+  <div id="sheets"></div>
+  <div id="toast" role="status"></div>
+  <script src="m.js"></script>
+</body>
+</html>

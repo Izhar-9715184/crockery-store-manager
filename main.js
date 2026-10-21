@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const http = require('http');
 
 const SMOKE = process.argv.includes('--smoke-test'); // used by the build pipeline
 
@@ -13,6 +14,7 @@ let win = null;
 let store = null;
 let service = null;
 let autoUpdater = null;
+let mobile = null;
 let updateState = { status: 'idle', version: null, percent: 0, message: '' };
 
 // ---------------------------------------------------------------- logging
@@ -55,8 +57,11 @@ function start() {
     return;
   }
 
+  const { MobileServer } = require('./src/server/server');
+  mobile = new MobileServer({ service, log });
   registerIpc();
   createWindow();
+  applyMobileConfig().catch((e) => log(`mobile access: ${e.message}`));
 
   if (SMOKE) return runSmokeTest();
 
@@ -163,6 +168,30 @@ function registerIpc() {
   });
 
   ipcMain.handle('sys:openBackups', () => shell.openPath(store.backupsDir));
+
+  // ---- mobile access (phone app)
+  ipcMain.handle('sys:mobileStatus', () => mobileStatus());
+  ipcMain.handle('sys:mobileApply', async (_e, opts) => {
+    service.setMobileAccess(opts || {}); // validates (PIN length, port range ...)
+    await applyMobileConfig();
+    return mobileStatus();
+  });
+}
+
+function mobileStatus() {
+  return { config: service.getMobileConfig(), ...mobile.status() };
+}
+
+/** Start / stop / restart the phone server so it matches the saved settings. */
+async function applyMobileConfig() {
+  const cfg = service.getMobileConfig();
+  const st = mobile.status();
+  const want = cfg.enabled && cfg.hasPin;
+  if (!want) { await mobile.stop(); return; }
+  if (st.running && st.port !== cfg.port) await mobile.stop();
+  if (!mobile.status().running) {
+    try { await mobile.start(cfg.port); } catch (e) { log(`mobile access could not start: ${e.message}`); }
+  }
 }
 
 // ---------------------------------------------------------------- auto update
@@ -209,6 +238,35 @@ async function runSmokeTest() {
     const s = service.createSale({ items: [{ product_id: p.id, qty: 1, price: 20 }] });
     if (s.total !== 20) return fail('sale total wrong');
     store.backup('smoke');
+
+    // phone server: start on a free port, log in with a PIN, make a call, check a wrong PIN is refused
+    service.setMobileAccess({ pin: 'smoke-pin-1' });
+    await mobile.start(0);
+    const base = `http://127.0.0.1:${mobile.status().port}`;
+    // plain `http` (the old Windows 7/8 program has no global fetch)
+    const call = (method, p, body, tok) => new Promise((resolve, reject) => {
+      const data = body ? JSON.stringify(body) : null;
+      const req = http.request(base + p, {
+        method,
+        headers: { ...(data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}), ...(tok ? { Authorization: 'Bearer ' + tok } : {}) },
+      }, (res) => {
+        let buf = '';
+        res.on('data', (c) => { buf += c; });
+        res.on('end', () => { let json = null; try { json = JSON.parse(buf); } catch (_) { /* not json */ } resolve({ status: res.statusCode, json }); });
+      });
+      req.on('error', reject);
+      if (data) req.write(data);
+      req.end();
+    });
+    const bad = await call('POST', '/api/login', { pin: 'nope' });
+    if (bad.status !== 401) return fail('wrong PIN was not refused');
+    const ok = (await call('POST', '/api/login', { pin: 'smoke-pin-1' })).json || {};
+    if (!ok.token) return fail('mobile login failed');
+    const dash = (await call('POST', '/api/call', { name: 'dashboard', args: [] }, ok.token)).json || {};
+    if (!dash.ok) return fail('mobile api call failed');
+    const page = await call('GET', '/');
+    if (page.status !== 200) return fail('mobile page not served');
+    await mobile.stop();
   } catch (e) {
     return fail(e.message);
   }
@@ -231,5 +289,8 @@ async function runSmokeTest() {
   }, 500);
 }
 
-app.on('before-quit', () => { try { if (store) store.close(); } catch (_) { /* ignore */ } });
+app.on('before-quit', () => {
+  try { if (mobile) mobile.stop(); } catch (_) { /* ignore */ }
+  try { if (store) store.close(); } catch (_) { /* ignore */ }
+});
 app.on('window-all-closed', () => app.quit());

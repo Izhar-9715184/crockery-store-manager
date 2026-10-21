@@ -17,7 +17,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { DatabaseSync } = require('node:sqlite');
+const { DatabaseSync } = require('./sqlite');
 
 const MIGRATIONS = [
   // ---- v1: initial schema -------------------------------------------------
@@ -127,7 +127,20 @@ const MIGRATIONS = [
     ('print_format','a4'),
     ('invoice_footer','Thank you for shopping with us!');
   `,
-  // ---- v2, v3 ... add future changes here (never edit the ones above) ------
+  // ---- v2: remember which phone purchase lists were already imported --------
+  // (so the same list can never add stock twice)
+  `
+  CREATE TABLE purchase_imports (
+    id           TEXT PRIMARY KEY,
+    batch_date   TEXT NOT NULL,
+    supplier     TEXT,
+    lines        INTEGER NOT NULL,
+    total_qty    REAL NOT NULL,
+    total_amount REAL NOT NULL,
+    imported_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  );
+  `,
+  // ---- v3, v4 ... add future changes here (never edit the ones above) ------
 ];
 
 

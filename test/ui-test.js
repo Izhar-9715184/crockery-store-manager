@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || '/home/claude/.npm-global/lib/node_modules/playwright');
 const { Store } = require('../src/core/db');
 const { createService } = require('../src/core/service');
+const { MobileServer } = require('../src/server/server');
 
 const shots = process.argv[2] || fs.mkdtempSync(path.join(os.tmpdir(), 'shots-'));
 fs.mkdirSync(shots, { recursive: true });
@@ -20,6 +21,7 @@ fs.mkdirSync(shots, { recursive: true });
   const store = new Store(dir);
   const svc = createService(store);
 
+  const mobile = new MobileServer({ service: svc });
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined });
   const page = await browser.newPage({ viewport: { width: 1366, height: 820 } });
   const errors = [];
@@ -32,9 +34,19 @@ fs.mkdirSync(shots, { recursive: true });
     try { return { ok: true, data: svc[name](...args) }; } catch (e) { return { ok: false, error: e.message }; }
   });
   await page.exposeFunction('__sysInfo', () => ({ version: '1.0.0', packaged: false, update: { status: 'idle' }, db: svc.dbInfo() }));
+  await page.exposeFunction('__mobStatus', () => ({ config: svc.getMobileConfig(), ...mobile.status() }));
+  await page.exposeFunction('__mobApply', async (o) => {
+    try {
+      svc.setMobileAccess(o);
+      const c = svc.getMobileConfig();
+      if (c.enabled && c.hasPin) await mobile.start(0); else await mobile.stop();
+      return { ok: true, data: { config: c, ...mobile.status() } };
+    } catch (e) { return { ok: false, error: e.message }; }
+  });
   await page.addInitScript(() => {
     window.api = { call: async (n, ...a) => { const r = await window.__rpc(n, a); if (!r.ok) throw new Error(r.error); return r.data; } };
     window.sys = { info: () => window.__sysInfo(), checkUpdate: async () => ({ status: 'dev' }), installUpdate: async () => true,
+      mobileStatus: () => window.__mobStatus(), mobileApply: async (o) => { const r = await window.__mobApply(o); if (!r.ok) throw new Error(r.error); return r.data; },
       backupTo: async () => null, restore: async () => null, openBackups: async () => true, onUpdateStatus: () => {} };
     window.print = () => { window.__printed = (window.__printed || 0) + 1; };
   });
@@ -183,6 +195,21 @@ fs.mkdirSync(shots, { recursive: true });
   await page.click('#bk');
   await page.waitForSelector('.toast.ok');
   await shot('09-settings');
+
+  // ---- turn on phone access from the Settings screen
+  await page.waitForSelector('#mobForm');
+  await page.fill('#mobForm [name=pin]', '123');
+  await page.click('#mobSave');
+  await page.waitForSelector('.toast.error');
+  assert.match(await toastText(), /at least 6/);
+  await page.fill('#mobForm [name=pin]', 'shop-pin-77');
+  await page.click('#mobSave');
+  await page.waitForSelector('#mobCard .badge.ok');
+  assert.ok((await page.textContent('#mobCard')).includes('http://'), 'shows the address to open on the phone');
+  await shot('10-settings-mobile');
+  await page.click('#mobOff');
+  await page.waitForFunction(() => document.querySelector('#mobCard .badge') && !document.querySelector('#mobCard .badge.ok'));
+  await mobile.stop();
 
   await browser.close();
   store.close();

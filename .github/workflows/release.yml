@@ -1,7 +1,12 @@
 name: Build and publish update
 
-# Push a tag like v1.0.1 -> this builds the Windows installer and publishes it
-# as ONE GitHub Release. Installed copies of the app download it automatically.
+# Push a tag like v1.0.4 -> this builds THREE Windows installers and publishes them
+# in ONE GitHub Release:
+#   1. Crockery-Store-Manager-Setup-<ver>.exe                 Windows 10 / 11 (64-bit)
+#   2. Crockery-Store-Manager-Win7-8-64bit-Setup-<ver>.exe    Windows 7 / 8 / 8.1 (64-bit)
+#   3. Crockery-Store-Manager-Win7-8-32bit-Setup-<ver>.exe    Windows 7 / 8 / 8.1 (32-bit)
+# Each installed copy updates itself from its own channel (latest / legacy / legacy32),
+# so a Windows 8 laptop never receives the Windows 10 program or the other way round.
 on:
   push:
     tags: ['v*']
@@ -10,8 +15,28 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the release (once, so the three builds do not fight)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          VER="${TAG#v}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$VER" --notes "Version $VER" --verify-tag
+
+  build:
+    needs: create-release
     runs-on: windows-latest
+    strategy:
+      fail-fast: false     # if one installer fails, the others are still published
+      matrix:
+        include:
+          - { kind: modern, arch: x64,  channel: latest,   name: Crockery-Store-Manager-Setup }
+          - { kind: legacy, arch: x64,  channel: legacy,   name: Crockery-Store-Manager-Win7-8-64bit-Setup }
+          - { kind: legacy, arch: ia32, channel: legacy32, name: Crockery-Store-Manager-Win7-8-32bit-Setup }
     defaults:
       run:
         shell: bash
@@ -22,8 +47,19 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies
+      - name: Install (Windows 10/11 program)
+        if: matrix.kind == 'modern'
         run: npm install
+
+      # Windows 7/8 need the older Electron 22 (newer Electron does not run there).
+      # It has no built-in SQLite, so the "better-sqlite3" package is added for this build only.
+      - name: Install (Windows 7/8 program)
+        if: matrix.kind == 'legacy'
+        run: |
+          npm pkg set devDependencies.electron=22.3.27 dependencies.electron-updater=5.3.0 dependencies.better-sqlite3=8.7.0
+          npm install --ignore-scripts
+          node node_modules/electron/install.js
+          npx electron-builder install-app-deps
 
       - name: Database / business-logic tests
         run: npm test
@@ -31,33 +67,34 @@ jobs:
       - name: Smoke test (starts the real app and checks it loads)
         run: npm run smoke
 
-      - name: Use the tag as the version number and this repo for updates
+      - name: Set version, update source and installer name
         run: |
           npm pkg set version="${GITHUB_REF_NAME#v}"
           npm pkg set build.publish.owner="${GITHUB_REPOSITORY_OWNER}"
           npm pkg set build.publish.repo="${GITHUB_REPOSITORY#*/}"
-          npm pkg set build.nsis.artifactName='Crockery-Store-Manager-Setup-${version}.${ext}'
+          npm pkg set build.nsis.artifactName="${{ matrix.name }}-"'${version}.${ext}'
+          if [ "${{ matrix.channel }}" != "latest" ]; then npm pkg set build.publish.channel="${{ matrix.channel }}"; fi
 
       - name: Build installer
-        run: npx electron-builder --win --x64 --publish never
+        run: npx electron-builder --win --${{ matrix.arch }} --publish never
 
       - name: Check the installer files exist
         run: |
+          VER="${GITHUB_REF_NAME#v}"
           ls -la dist
-          test -f dist/latest.yml
-          test -f "dist/Crockery-Store-Manager-Setup-${GITHUB_REF_NAME#v}.exe"
-          test -f "dist/Crockery-Store-Manager-Setup-${GITHUB_REF_NAME#v}.exe.blockmap"
-          cat dist/latest.yml
+          test -f "dist/${{ matrix.channel }}.yml"
+          test -f "dist/${{ matrix.name }}-$VER.exe"
+          test -f "dist/${{ matrix.name }}-$VER.exe.blockmap"
+          cat "dist/${{ matrix.channel }}.yml"
 
-      - name: Publish ONE release with all files
+      - name: Add the files to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           TAG="$GITHUB_REF_NAME"
           VER="${TAG#v}"
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$VER" --notes "Version $VER" --verify-tag
           gh release upload "$TAG" \
-            "dist/Crockery-Store-Manager-Setup-$VER.exe" \
-            "dist/Crockery-Store-Manager-Setup-$VER.exe.blockmap" \
-            dist/latest.yml --clobber
+            "dist/${{ matrix.name }}-$VER.exe" \
+            "dist/${{ matrix.name }}-$VER.exe.blockmap" \
+            "dist/${{ matrix.channel }}.yml" --clobber

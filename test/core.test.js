@@ -225,7 +225,7 @@ test('migration: an update upgrades old data in place, with a backup, nothing lo
   try {
     // a broken future migration must roll back completely and leave the data usable
     dbmod.MIGRATIONS.push('ALTER TABLE products ADD COLUMN barcode TEXT; THIS IS NOT SQL;');
-    assert.throws(() => new Store(dir), /update to v2 failed/);
+    assert.throws(() => new Store(dir), new RegExp(`update to v${original + 1} failed`));
     dbmod.MIGRATIONS.pop();
     const ok = new Store(dir);
     assert.equal(ok.get('PRAGMA user_version').user_version, original);

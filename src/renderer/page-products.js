@@ -105,6 +105,104 @@ async function historyDialog(p) {
   });
 }
 
+/* ---------- purchases written on the phone (offline, at the wholesale market) ---------- */
+function importFromPhoneDialog(done) {
+  const m = modal({
+    title: 'Import purchases from phone',
+    wide: true,
+    body: `<p style="margin-top:0">On the phone, in <b>Maal Entry</b>, press <b>Send to laptop</b> and send the message to this computer (WhatsApp Web / Desktop, email…).
+      Copy the whole message and paste it here, or choose the saved file.</p>
+      <label class="f"><span>Paste the message here</span><textarea name="text" style="min-height:150px" placeholder="Maal entry — …&#10;CROCKERY-MAAL:…"></textarea></label>
+      <label class="f"><span>…or choose a saved file</span><input type="file" name="file" accept=".txt,.json,text/plain"></label>`,
+    actions: [{ label: 'Cancel' }, {
+      label: 'Check', kind: 'primary', close: false,
+      onClick: async (mm) => {
+        const text = $('[name=text]', mm.body).value;
+        if (!text.trim()) throw new Error('Paste the message first');
+        const prev = await rpc('previewPurchaseImport', text);
+        mm.close();
+        reviewPurchase(text, prev, done);
+      },
+    }],
+  });
+  $('[name=file]', m.body).addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (f) $('[name=text]', m.body).value = await f.text();
+  });
+}
+
+async function reviewPurchase(text, prev, done) {
+  const products = await rpc('listProducts', { limit: 5000 });
+  const opts = (sel) => `<option value="new" ${sel === 'new' ? 'selected' : ''}>＋ Create as NEW product</option>
+    <option value="skip" ${sel === 'skip' ? 'selected' : ''}>— Skip this line —</option>
+    ${products.map((p) => `<option value="${p.id}" ${String(sel) === String(p.id) ? 'selected' : ''}>${esc(p.name)} (now ${qty(p.stock)})</option>`).join('')}`;
+  const rows = prev.lines.map((l) => {
+    const sel = l.match ? l.match.id : 'new';
+    return `<tr data-i="${l.index}"><td><b>${esc(l.name)}</b>${l.match ? '' : `<div class="small red">New item${l.suggestions.length ? ' — maybe: ' + l.suggestions.map((s) => esc(s.name)).join(', ') : ''}</div>`}</td>
+      <td class="r num">${qty(l.qty)}</td><td class="r num">${qty(l.cost)}</td>
+      <td style="min-width:260px"><select data-sel>${opts(sel)}</select>
+        <input type="number" min="0" step="any" data-sale placeholder="Sale price for the new product" value="${l.sale_price ?? ''}" style="margin-top:6px;${l.match ? 'display:none' : ''}"></td></tr>`;
+  }).join('');
+  const m = modal({
+    title: 'Check before importing',
+    wide: true,
+    body: `${prev.alreadyImported ? `<div class="banner warn" style="padding:10px 14px;border-radius:8px;margin-bottom:12px">This list was already imported on ${esc(prev.alreadyImported.imported_at.slice(0, 16))}. It cannot be added again.</div>` : ''}
+      <div style="margin-bottom:10px"><b>${esc(fmtDate(prev.date))}</b>${prev.supplier ? ' · ' + esc(prev.supplier) : ''} · ${prev.lines.length} items · ${qty(prev.totalQty)} pcs · <b>${money(prev.totalAmount)}</b></div>
+      <div class="card table-card"><div class="table-wrap" style="max-height:52vh"><table><thead><tr><th>Item on phone</th><th class="r">Qty</th><th class="r">Cost</th><th>Add to which product?</th></tr></thead><tbody>${rows}</tbody></table></div></div>
+      <p class="muted small">Matching items are pre-selected. Stock goes up by the quantity, and the cost price becomes the latest purchase price.</p>`,
+    actions: [{ label: 'Cancel' }, {
+      label: 'Import now', kind: 'primary', close: false,
+      onClick: async (mm) => {
+        const decisions = $$('tbody tr', mm.body).map((tr) => {
+          const v = $('[data-sel]', tr).value;
+          if (v === 'skip') return { action: 'skip' };
+          if (v === 'new') return { action: 'new', sale_price: $('[data-sale]', tr).value };
+          return { action: 'match', product_id: Number(v) };
+        });
+        const r = await rpc('applyPurchaseImport', { text, decisions });
+        mm.close();
+        toast(`Imported ${r.imported} item${r.imported === 1 ? '' : 's'} (${qty(r.totalQty)} pcs)${r.created ? ` · ${r.created} new product${r.created === 1 ? '' : 's'}` : ''}`, 'ok');
+        if (done) done();
+      },
+    }],
+  });
+  if (prev.alreadyImported) $('footer .btn.primary', m.el).disabled = true;
+  m.body.addEventListener('change', (e) => {
+    const tr = e.target.closest('tr[data-i]');
+    if (tr && e.target.matches('[data-sel]')) $('[data-sale]', tr).style.display = e.target.value === 'new' ? '' : 'none';
+  });
+}
+
+async function phoneProductListDialog() {
+  const { count, text } = await rpc('exportProductsForPhone');
+  modal({
+    title: 'Product list for the phone',
+    body: `<p style="margin-top:0"><b>${count} products.</b> This lets the phone suggest your exact product names while you type in the market, so imports match without mistakes.</p>
+      <ol><li>Press <b>Copy</b> (or Save file).</li><li>Send it to your phone (WhatsApp to yourself).</li>
+      <li>On the phone: <b>Maal Entry → ⋮ → Product list</b> and paste it.</li></ol>
+      <p class="muted small">Do this again whenever you add many new products.</p>`,
+    actions: [{ label: 'Close' }, {
+      label: 'Save as file', close: false,
+      onClick: () => downloadText(`products-for-phone-${today()}.txt`, text),
+    }, {
+      label: 'Copy', kind: 'primary', close: false,
+      onClick: async () => {
+        try { await navigator.clipboard.writeText(text); toast('Copied. Send it to your phone.', 'ok'); }
+        catch (e) { downloadText(`products-for-phone-${today()}.txt`, text); toast('Could not copy, saved as a file instead', 'ok'); }
+      },
+    }],
+  });
+}
+
+function downloadText(filename, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  a.download = filename;
+  document.body.append(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
 App.pages.products = {
   title: 'Products & Stock',
   async render(root, arg) {
@@ -112,7 +210,7 @@ App.pages.products = {
     if (typeof arg === 'string') { st.q = arg; st.f = ''; }
     root.innerHTML = `
       <div class="page-head"><div><h1>Products &amp; Stock</h1><div class="sub" id="sub"></div></div>
-        <div class="head-actions"><button class="btn" id="exp">Export CSV</button><button class="btn primary" id="add">+ Add product</button></div></div>
+        <div class="head-actions"><button class="btn" id="exp">Export CSV</button><button class="btn" id="plist">Product list for phone</button><button class="btn teal" id="imp">Import from phone</button><button class="btn primary" id="add">+ Add product</button></div></div>
       <div class="toolbar">
         <input type="search" id="q" placeholder="Search name, code or category…" class="grow">
         <div class="seg" id="seg"><button data-f="">All</button><button data-f="low">Low stock</button><button data-f="out">Out of stock</button></div>
@@ -142,6 +240,8 @@ App.pages.products = {
     el('q').addEventListener('input', debounce(load, 150));
     el('seg').addEventListener('click', (e) => { if (e.target.dataset.f !== undefined) { st.f = e.target.dataset.f; load(); } });
     el('add').addEventListener('click', () => editProduct(null, load));
+    el('imp').addEventListener('click', () => importFromPhoneDialog(load));
+    el('plist').addEventListener('click', () => phoneProductListDialog());
     el('exp').addEventListener('click', async () => {
       const r = await rpc('stockReport');
       downloadCsv(`stock-${today()}.csv`, [['Code', 'Product', 'Category', 'Unit', 'Cost price', 'Sale price', 'Stock', 'Stock value'],
