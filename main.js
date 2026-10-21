@@ -8,7 +8,12 @@ const http = require('http');
 const SMOKE = process.argv.includes('--smoke-test'); // used by the build pipeline
 
 // In smoke-test mode use a throw-away data folder so real data is never touched.
-if (SMOKE) app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'crockery-smoke-')));
+if (SMOKE) {
+  app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'crockery-smoke-')));
+  // the build server has no screen/graphics card: without this the GPU process crashes and the test fails for no real reason
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+}
 
 let win = null;
 let store = null;
