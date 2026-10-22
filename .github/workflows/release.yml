@@ -64,8 +64,15 @@ jobs:
       - name: Database / business-logic tests
         run: npm test
 
+      # The build server has no screen, so the test app now and then crashes for reasons unrelated to our code.
+      # It gets 3 tries; if all 3 fail, something is really wrong and the build stops.
       - name: Smoke test (starts the real app and checks it loads)
-        run: npm run smoke
+        run: |
+          for i in 1 2 3; do
+            if npm run smoke; then exit 0; fi
+            echo "Smoke test attempt $i failed"; sleep 5
+          done
+          exit 1
 
       - name: Set version, update source and installer name
         run: |
