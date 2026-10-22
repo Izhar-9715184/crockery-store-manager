@@ -20,5 +20,12 @@ contextBridge.exposeInMainWorld('sys', {
   openBackups: () => ipcRenderer.invoke('sys:openBackups'),
   mobileStatus: () => ipcRenderer.invoke('sys:mobileStatus'),
   mobileApply: (opts) => ipcRenderer.invoke('sys:mobileApply', opts),
+  cloudStatus: () => ipcRenderer.invoke('sys:cloudStatus'),
+  cloudConnect: () => ipcRenderer.invoke('sys:cloudConnect'),
+  cloudBackupNow: () => ipcRenderer.invoke('sys:cloudBackupNow'),
+  cloudList: () => ipcRenderer.invoke('sys:cloudList'),
+  cloudRestore: (id) => ipcRenderer.invoke('sys:cloudRestore', id),
+  cloudKeep: () => ipcRenderer.invoke('sys:cloudKeep'),
+  cloudDisconnect: () => ipcRenderer.invoke('sys:cloudDisconnect'),
   onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_e, s) => cb(s)),
 });

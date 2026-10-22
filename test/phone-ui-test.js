@@ -142,7 +142,7 @@ function pagesServer() {
     window.api = { call: async (n, ...a) => { const r = await window.__rpc(n, a); if (!r.ok) throw new Error(r.error); return r.data; } };
     window.sys = { info: () => window.__sysInfo(), checkUpdate: async () => ({ status: 'dev' }), installUpdate: async () => true,
       backupTo: async () => null, restore: async () => null, openBackups: async () => true, onUpdateStatus: () => {},
-      mobileStatus: async () => ({ config: { enabled: false, port: 8765, hasPin: false }, running: false }), mobileApply: async () => ({}) };
+      mobileStatus: async () => ({ config: { enabled: false, port: 8765, hasPin: false }, running: false }), mobileApply: async () => ({}), cloudStatus: async () => ({ configured: false, state: 'unconfigured', connected: false }) };
   });
   await lap.goto('file://' + path.resolve(__dirname, '../src/renderer/index.html'));
   await lap.waitForFunction(() => window.__appReady === true);

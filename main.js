@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -20,6 +20,8 @@ let store = null;
 let service = null;
 let autoUpdater = null;
 let mobile = null;
+let cloud = null;
+let quitting = false;
 let updateState = { status: 'idle', version: null, percent: 0, message: '' };
 
 // ---------------------------------------------------------------- logging
@@ -64,6 +66,17 @@ function start() {
 
   const { MobileServer } = require('./src/server/server');
   mobile = new MobileServer({ service, log });
+  try {
+    const { CloudBackup } = require('./src/cloud/cloud');
+    let config = {};
+    try { config = require('./src/cloud/google-config.json'); } catch (_) { /* not set up */ }
+    const canEnc = (() => { try { return safeStorage && safeStorage.isEncryptionAvailable(); } catch (_) { return false; } })();
+    cloud = new CloudBackup({
+      store, dir: path.join(app.getPath('userData'), 'cloud'), config, log,
+      openUrl: (u) => shell.openExternal(u),
+      crypt: canEnc ? { encrypt: (t) => safeStorage.encryptString(t).toString('base64'), decrypt: (b) => safeStorage.decryptString(Buffer.from(b, 'base64')) } : null,
+    });
+  } catch (e) { log(`cloud backup unavailable: ${e.message}`); }
   registerIpc();
   createWindow();
   applyMobileConfig().catch((e) => log(`mobile access: ${e.message}`));
@@ -71,6 +84,7 @@ function start() {
   if (SMOKE) return runSmokeTest();
 
   setupUpdater();
+  if (cloud) cloud.start();
   // keep today's automatic backup fresh while the shop is working
   setInterval(() => { try { store.autoBackup(true); } catch (e) { log(`backup: ${e.message}`); } }, 15 * 60 * 1000);
 }
@@ -172,6 +186,36 @@ function registerIpc() {
     return res;
   });
 
+  // ---- Google Drive backup
+  const needCloud = () => { if (!cloud) throw new Error('Google backup is not available.'); return cloud; };
+  ipcMain.handle('sys:cloudStatus', () => (cloud ? cloud.status() : { configured: false, state: 'unconfigured', connected: false }));
+  ipcMain.handle('sys:cloudConnect', () => needCloud().connect());
+  ipcMain.handle('sys:cloudBackupNow', async () => { await needCloud().backupNow(); return cloud.status(); });
+  ipcMain.handle('sys:cloudList', () => needCloud().listCloud());
+  ipcMain.handle('sys:cloudRestore', async (_e, fileId) => {
+    const c = await dialog.showMessageBox(win, {
+      type: 'warning', buttons: ['Cancel', 'Restore from Google'], defaultId: 0, cancelId: 0,
+      title: 'Restore from Google Drive',
+      message: 'Replace ALL data on this computer with the copy from your Google Drive?',
+      detail: 'Anything on this computer that is not in that copy will be gone. A safety copy of the current data is saved first.',
+    });
+    if (c.response !== 1) return null;
+    const res = await needCloud().restore(fileId || undefined);
+    win.webContents.reload();
+    return res;
+  });
+  ipcMain.handle('sys:cloudKeep', async () => {
+    const c = await dialog.showMessageBox(win, {
+      type: 'warning', buttons: ['Cancel', 'Use this computer'], defaultId: 0, cancelId: 0,
+      title: 'Replace the Google copy',
+      message: 'Replace the copy in your Google Drive with the data on THIS computer?',
+      detail: 'Only choose this if the data on this computer is the correct and latest one.',
+    });
+    if (c.response !== 1) return null;
+    return needCloud().keepThisComputer();
+  });
+  ipcMain.handle('sys:cloudDisconnect', () => needCloud().disconnect());
+
   ipcMain.handle('sys:openBackups', () => shell.openPath(store.backupsDir));
 
   // ---- mobile access (phone app)
@@ -243,6 +287,7 @@ async function runSmokeTest() {
     const s = service.createSale({ items: [{ product_id: p.id, qty: 1, price: 20 }] });
     if (s.total !== 20) return fail('sale total wrong');
     store.backup('smoke');
+    if (!cloud || !['unconfigured', 'off'].includes(cloud.status().state)) return fail('cloud backup module did not load');
 
     // phone server: start on a free port, log in with a PIN, make a call, check a wrong PIN is refused
     service.setMobileAccess({ pin: 'smoke-pin-1' });
@@ -294,7 +339,15 @@ async function runSmokeTest() {
   }, 500);
 }
 
-app.on('before-quit', () => {
+app.on('before-quit', (e) => {
+  // last copy to Google Drive (max. a few seconds, skipped when offline or nothing changed)
+  if (!quitting && !SMOKE && cloud) {
+    quitting = true;
+    e.preventDefault();
+    cloud.stop();
+    cloud.backupOnExit().catch(() => {}).then(() => app.quit());
+    return;
+  }
   try { if (mobile) mobile.stop(); } catch (_) { /* ignore */ }
   try { if (store) store.close(); } catch (_) { /* ignore */ }
 });

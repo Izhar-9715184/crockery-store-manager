@@ -59,6 +59,8 @@ App.pages.settings = {
           ${backups.map((b) => `<tr><td>${esc(b.name)}</td><td>${esc(fmtStamp(b.modified))}</td><td class="r">${fmtBytes(b.size)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">No backups yet.</td></tr>'}
         </tbody></table></div></div></div>
 
+      <div class="card section-gap"><h2>Google backup (your data safe in your own Google Drive)</h2><div class="pad" id="cloudCard"><div class="muted">Loading…</div></div></div>
+
       <div class="card section-gap"><h2>Mobile access (use on your phone)</h2><div class="pad" id="mobCard"><div class="muted">Loading…</div></div></div>`;
 
     const el = (id) => $('#' + id, root);
@@ -79,6 +81,64 @@ App.pages.settings = {
     el('bkTo').addEventListener('click', () => safe(async () => { const p = await window.sys.backupTo(); if (p) toast('Copy saved to ' + p, 'ok'); }));
     el('bkOpen').addEventListener('click', () => window.sys.openBackups());
     el('bkRestore').addEventListener('click', () => safe(async () => { const r = await window.sys.restore(); if (r) toast('Backup restored', 'ok'); }));
+    // ---- Google Drive backup card
+    async function drawCloud() {
+      const c = await window.sys.cloudStatus();
+      const card = el('cloudCard');
+      const when = (iso) => (iso ? fmtStamp(iso) : 'not yet');
+      if (c.state === 'unconfigured') {
+        card.innerHTML = '<p style="margin:0">Google backup is <b>not switched on</b> in this copy of the software. Please ask your software provider to enable it.</p>';
+        return;
+      }
+      if (!c.connected) {
+        card.innerHTML = `
+          <p style="margin-top:0">Sign in with your <b>Gmail</b> and the software keeps a copy of your data in <b>your own Google Drive</b>, automatically. If this computer breaks or is lost, install the software on any other computer, sign in with the same Gmail, and all your data comes back.</p>
+          <p class="muted small">Nobody else can see this copy, not even the software provider. It uses a hidden folder that belongs to this program only.</p>
+          ${c.state === 'signin' ? `<div class="red" style="margin-bottom:10px">${esc(c.lastError || 'Please sign in again.')}</div>` : ''}
+          <button class="btn primary" id="cgIn">${c.state === 'signin' ? 'Sign in again with Google' : 'Sign in with Google'}</button>
+          <span class="muted small" id="cgWait" hidden> A Google page opened in your browser. Choose your account and press Allow…</span>`;
+        el('cgIn').addEventListener('click', () => safe(async () => {
+          el('cgIn').disabled = true; el('cgWait').hidden = false;
+          try { const r = await window.sys.cloudConnect(); toast(r.state === 'choice' ? 'Please choose what to do with the copy found in your Google Drive' : 'Signed in. Your data is being saved to Google Drive', r.state === 'choice' ? 'error' : 'ok'); }
+          finally { drawCloud(); }
+        }));
+        return;
+      }
+      const badge = c.state === 'ok' ? '<span class="badge ok">ON</span>' : '<span class="badge">CHECK</span>';
+      let choice = '';
+      if (c.state === 'choice') {
+        const x = c.choice || {};
+        choice = `<div class="card" style="border:2px solid var(--amber,#d97706);margin:12px 0"><div class="pad">
+          <b>A copy of shop data was found in this Google account.</b>
+          <div class="small" style="margin:6px 0">${esc(x.shop || 'Shop')} · ${x.products || 0} products · ${x.sales || 0} bills · saved ${esc(x.at ? fmtStamp(x.at) : '')}</div>
+          <p class="small" style="margin:6px 0">It came from another computer (or from before this program was re-installed). <b>Nothing has been uploaded from this computer yet</b>, so nothing is overwritten. What should happen?</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn primary" id="cgRestore">Bring that data here (replace this computer's data)</button>
+            <button class="btn danger" id="cgKeep">This computer's data is correct (replace the Google copy)</button></div></div></div>`;
+      }
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">${badge}<span>Signed in as <b>${esc(c.email || 'your Google account')}</b></span></div>
+        <dl class="kv"><dt>Last copy saved</dt><dd>${esc(when(c.lastOk))}</dd></dl>
+        ${c.lastError ? `<div class="red" style="margin:8px 0">${esc(c.lastError)}</div>` : ''}
+        ${choice}
+        <p class="muted small">A copy is saved automatically a few minutes after any change, and again when you close the software. It needs internet; without it the software works as usual and saves later.</p>
+        <div class="toolbar"><button class="btn primary" id="cgNow" ${c.state === 'choice' ? 'disabled' : ''}>Save to Google now</button>
+          <button class="btn" id="cgPick">Restore an older copy…</button><span class="grow"></span><button class="btn" id="cgOut">Sign out</button></div>
+        <div id="cgList"></div>`;
+      const run = (id, fn, redraw = true) => { const b = el(id); if (b) b.addEventListener('click', () => safe(async () => { try { await fn(); } finally { if (redraw) drawCloud(); } })); };
+      run('cgNow', async () => { toast('Saving to Google Drive…'); const r = await window.sys.cloudBackupNow(); toast('Saved to Google Drive', r.lastError ? 'error' : 'ok'); });
+      run('cgRestore', async () => { const r = await window.sys.cloudRestore(); if (r) toast('Data restored from Google Drive', 'ok'); });
+      run('cgKeep', async () => { const r = await window.sys.cloudKeep(); if (r) toast('Google copy replaced with this computer\'s data', 'ok'); });
+      run('cgOut', async () => { await window.sys.cloudDisconnect(); toast('Signed out. Your copy in Google Drive is kept.', 'ok'); });
+      run('cgPick', async () => {
+        const list = await window.sys.cloudList();
+        el('cgList').innerHTML = `<div class="table-wrap" style="max-height:220px;margin-top:10px"><table><thead><tr><th>Copy</th><th>Saved</th><th class="r">Products</th><th class="r">Bills</th><th></th></tr></thead><tbody>
+          ${list.map((f) => `<tr><td>${esc(f.name.replace('crockery-', '').replace('.db', ''))}</td><td>${esc(fmtStamp(f.at))}</td><td class="r">${f.products}</td><td class="r">${f.sales}</td><td class="r"><button class="btn small" data-rf="${esc(f.id)}">Restore</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">No copies yet.</td></tr>'}
+          </tbody></table></div>`;
+        el('cgList').querySelectorAll('[data-rf]').forEach((b) => b.addEventListener('click', () => safe(async () => { const r = await window.sys.cloudRestore(b.dataset.rf); if (r) toast('Data restored from Google Drive', 'ok'); drawCloud(); })));
+      }, false);
+    }
+    drawCloud();
     // ---- mobile access card
     async function drawMobile() {
       const m = await window.sys.mobileStatus();

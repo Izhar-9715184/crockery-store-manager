@@ -180,6 +180,7 @@ class Store {
     this.log = logger || (() => {});
     this.recovered = null; // set if we had to restore from a backup at startup
     this._depth = 0;
+    this.writes = 0; // counts changes; the cloud backup uses it to skip uploads when nothing changed
     fs.mkdirSync(this.backupsDir, { recursive: true });
     this._open();
     this.autoBackup();
@@ -275,10 +276,12 @@ class Store {
     return r ? { ...r } : undefined;
   }
   run(sql, ...params) {
+    this.writes++;
     const r = this.db.prepare(sql).run(...normParams(params));
     return { changes: Number(r.changes), id: Number(r.lastInsertRowid) };
   }
   exec(sql) {
+    this.writes++;
     this.db.exec(sql);
   }
   /** Run fn atomically. Nested calls join the outer transaction. */
@@ -404,5 +407,6 @@ module.exports = {
   MIGRATIONS,
   get LATEST() { return MIGRATIONS.length; },
   dateStr,
+  inspectFile,
   stamp,
 };
