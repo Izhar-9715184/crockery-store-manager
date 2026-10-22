@@ -56,6 +56,35 @@ Jab aap wholesale market mein hon aur signal na ho:
 
 **GitHub Pages aik dafa on karein:** repository → Settings → Pages → Branch `main`, folder `/docs` → Save. Kuch minute baad upar wala link chal jata hai.
 
+### Google backup (client ka data uske apne Gmail / Google Drive mein)
+
+Har client Settings → **Google backup** mein **Sign in with Google** dabata hai. Us ke baad software khud ba khud data ki copy us ke **apne Google Drive ke chhupe hue app folder** mein rakhta hai (har change ke kuch minute baad, aur software band karte waqt). Kisi aur ko, yahan tak ke software bechne wale ko bhi, ye data nazar nahi aata, aur ye muft hai.
+
+Laptop kharab ho jaye to: kisi bhi naye computer par software install karein, usi Gmail se sign in karein, **Bring that data here** dabayein, aur poora data wapas aa jata hai.
+
+Hifazat ke usool:
+- Naya computer sign in kare aur cloud mein pehle se kisi aur computer ki copy ho, to software **kuch upload nahi karta** jab tak client khud na chune (restore karein, ya is computer ka data sahi hai). Is tarah khali naya computer achhi copy ko kabhi mita nahi sakta.
+- Internet na ho to software normal chalta hai, aur internet aane par copy save kar leta hai.
+- 30 din ki rozana copies Drive mein rehti hain; **Restore an older copy** se koi bhi purani copy wapas aa sakti hai.
+- Aik waqt mein aik hi computer chalana hai (ye live sync nahi, backup + restore hai).
+
+**Aap ko (software bechne wale ko) aik dafa Google ka setup karna hai** (sab clients ke liye aik hi). Ye aasaan checklist hai:
+
+1. `docs/privacy.html` kholein aur `YOUR_EMAIL_HERE` ki jagah apna email likhein. Push karein. Ye page `https://izhar-9715184.github.io/crockery-store-manager/privacy.html` par chalega.
+2. `console.cloud.google.com` par jayein. Upar project chunne wale button se **New project**, naam *Crockery Backup*, **Create**.
+3. Search bar mein **Google Drive API** likhein, kholein, **Enable** dabayein.
+4. Search bar mein **Google Auth Platform** likhein aur kholein. **Get started** dabayein.
+   - App name: `Crockery Store Manager`, User support email: apna Gmail.
+   - Audience: **External**.
+   - Contact: apna email. Agree karein, **Create**.
+5. Left menu **Branding** mein App domain ke neeche Application home page = `https://izhar-9715184.github.io/crockery-store-manager/`, Privacy policy = `.../privacy.html`. Save.
+6. Left menu **Data Access** → **Add or remove scopes**: `openid`, `.../auth/userinfo.email` aur `.../auth/drive.appdata` tick karein. Save.
+7. Left menu **Audience** → **Publish app** → Confirm. (Testing mode mein sign-in 7 din baad ruk jata hai, is liye publish zaroori hai.)
+8. Left menu **Clients** → **Create client** → Application type **Desktop app** → naam likhein → **Create**. **Client ID** aur **Client secret** copy karein.
+9. `src/cloud/google-config.json` mein `PASTE_CLIENT_ID_HERE` aur `PASTE_CLIENT_SECRET_HERE` ki jagah paste karein. Commit, push, nayi tag.
+
+Agar Google branding ke liye domain verify karne ko kahe (github.io ke saath aisa ho sakta hai), to mujhe wo screen bhej dein; us ka hal alag tareeqe se nikal lenge.
+
 ### Windows 7 / 8 / 8.1 ke liye alag installer
 
 Tag lagane par (misal `v1.0.4`) GitHub aik hi Release mein **do** installer banata hai:
@@ -174,6 +203,8 @@ Commands: `npm install` · `npm start` (chalana) · `npm test` (tests) · `npm r
 ---
 
 ## 7. Jo cheez abhi verify nahi hui (sach baat)
+
+**Google backup:** poora logic (sign-in ka tareeqa, upload, restore, do computers ka takrao, internet na hona) aik nakli Google server ke saath test hua hai (7 tests). Asal Google ke saath pehli dafa aap ke setup ke baad chalega. Setup ke baad pehle apne Gmail se sign in karke dekhein ke Drive mein copy ban rahi hai, phir dusre computer par restore bhi aazma lein.
 
 Windows 7/8 wale installers bhi yahan build ya chala kar nahi dekhe gaye. GitHub par smoke test chalta hai, lekin **asal Windows 7/8 PC par install karke aik sale zaroor test karein**, phir client ko dein.
 
