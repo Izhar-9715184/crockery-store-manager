@@ -1,11 +1,10 @@
 name: Build and publish update
 
-# Push a tag like v1.0.4 -> this builds THREE Windows installers and publishes them
+# Push a tag like v1.0.4 -> this builds TWO Windows installers and publishes them
 # in ONE GitHub Release:
 #   1. Crockery-Store-Manager-Setup-<ver>.exe                 Windows 10 / 11 (64-bit)
 #   2. Crockery-Store-Manager-Win7-8-64bit-Setup-<ver>.exe    Windows 7 / 8 / 8.1 (64-bit)
-#   3. Crockery-Store-Manager-Win7-8-32bit-Setup-<ver>.exe    Windows 7 / 8 / 8.1 (32-bit)
-# Each installed copy updates itself from its own channel (latest / legacy / legacy32),
+# Each installed copy updates itself from its own channel (latest / legacy),
 # so a Windows 8 laptop never receives the Windows 10 program or the other way round.
 on:
   push:
@@ -18,7 +17,7 @@ jobs:
   create-release:
     runs-on: ubuntu-latest
     steps:
-      - name: Create the release (once, so the three builds do not fight)
+      - name: Create the release (once, so the builds do not fight)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -31,12 +30,11 @@ jobs:
     needs: create-release
     runs-on: windows-latest
     strategy:
-      fail-fast: false     # if one installer fails, the others are still published
+      fail-fast: false     # if one installer fails, the other is still published
       matrix:
         include:
           - { kind: modern, arch: x64,  channel: latest,   name: Crockery-Store-Manager-Setup }
           - { kind: legacy, arch: x64,  channel: legacy,   name: Crockery-Store-Manager-Win7-8-64bit-Setup }
-          - { kind: legacy, arch: ia32, channel: legacy32, name: Crockery-Store-Manager-Win7-8-32bit-Setup }
     defaults:
       run:
         shell: bash

@@ -58,15 +58,14 @@ Jab aap wholesale market mein hon aur signal na ho:
 
 ### Windows 7 / 8 / 8.1 ke liye alag installer
 
-Tag lagane par (misal `v1.0.4`) GitHub aik hi Release mein **teen** installer banata hai:
+Tag lagane par (misal `v1.0.4`) GitHub aik hi Release mein **do** installer banata hai:
 
 | File | Kis Windows ke liye |
 |---|---|
 | `Crockery-Store-Manager-Setup-<ver>.exe` | Windows 10 / 11 |
-| `Crockery-Store-Manager-Win7-8-64bit-Setup-<ver>.exe` | Windows 7 / 8 / 8.1, **64-bit** |
-| `Crockery-Store-Manager-Win7-8-32bit-Setup-<ver>.exe` | Windows 7 / 8 / 8.1, **32-bit** |
+| `Crockery-Store-Manager-Win7-8-64bit-Setup-<ver>.exe` | Windows 7 / 8 / 8.1 (sirf **64-bit**; 32-bit ke liye installer nahi hai) |
 
-32 ya 64 bit kaise dekhein: Windows 8 mein *PC → Properties* (Windows 7 mein *Computer → Properties*) mein **System type** likha hota hai. Agar pata na chale to 32-bit wala install karein, wo dono par chalta hai.
+64-bit hai ya nahi: Windows 8 mein *PC → Properties* (Windows 7 mein *Computer → Properties*) mein **System type** dekhein; "64-bit Operating System" likha hona chahiye.
 
 Har installer apne hi channel se update hota hai, is liye Windows 8 wale laptop ko Windows 10 wala program kabhi nahi milta. Purane Windows ke liye Electron 22 use hota hai jis ko ab security updates nahi milte; in laptops ko sirf dukaan ke kaam ke liye rakhein.
 
