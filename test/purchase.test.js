@@ -83,7 +83,8 @@ test('apply: stock in for matched, new product created, skipped line ignored, al
   const neu = svc.listProducts({ q: 'Chai' })[0];
   assert.equal(neu.stock, 12);
   assert.equal(neu.sale_price, 110);
-  const hist = svc.stockHistory(plate.id)[0];
+  const hist = svc.stockHistory(plate.id).find((m) => m.type === 'purchase');   // not [0]: order depends on today's date
+  assert.ok(hist, 'a purchase entry exists');
   assert.equal(hist.type, 'purchase');
   assert.equal(hist.supplier, 'Rafiq Traders');
   assert.equal(hist.date, '2026-10-21');
