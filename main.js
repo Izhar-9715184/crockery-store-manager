@@ -21,6 +21,7 @@ let service = null;
 let autoUpdater = null;
 let mobile = null;
 let cloud = null;
+let folderBk = null;
 let quitting = false;
 let updateState = { status: 'idle', version: null, percent: 0, message: '' };
 
@@ -77,6 +78,10 @@ function start() {
       crypt: canEnc ? { encrypt: (t) => safeStorage.encryptString(t).toString('base64'), decrypt: (b) => safeStorage.decryptString(Buffer.from(b, 'base64')) } : null,
     });
   } catch (e) { log(`cloud backup unavailable: ${e.message}`); }
+  try {
+    const { FolderBackup } = require('./src/core/folderbackup');
+    folderBk = new FolderBackup({ store, dir: path.join(app.getPath('userData'), 'cloud'), log });
+  } catch (e) { log(`folder backup unavailable: ${e.message}`); }
   registerIpc();
   createWindow();
   applyMobileConfig().catch((e) => log(`mobile access: ${e.message}`));
@@ -85,6 +90,7 @@ function start() {
 
   setupUpdater();
   if (cloud) cloud.start();
+  if (folderBk) folderBk.start();
   // keep today's automatic backup fresh while the shop is working
   setInterval(() => { try { store.autoBackup(true); } catch (e) { log(`backup: ${e.message}`); } }, 15 * 60 * 1000);
 }
@@ -216,6 +222,43 @@ function registerIpc() {
   });
   ipcMain.handle('sys:cloudDisconnect', () => needCloud().disconnect());
 
+  // ---- automatic copy to a folder (USB / Google Drive / OneDrive folder)
+  const needFolder = () => { if (!folderBk) throw new Error('Folder backup is not available.'); return folderBk; };
+  ipcMain.handle('sys:folderStatus', () => (folderBk ? folderBk.status() : { state: 'off', folder: '' }));
+  ipcMain.handle('sys:folderChoose', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Choose the folder for automatic backups (USB drive, or a Google Drive / OneDrive folder)',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return needFolder().setFolder(r.filePaths[0]);
+  });
+  ipcMain.handle('sys:folderBackupNow', () => needFolder().backupNow());
+  ipcMain.handle('sys:folderList', () => needFolder().list());
+  ipcMain.handle('sys:folderRestore', async (_e, name) => {
+    const c = await dialog.showMessageBox(win, {
+      type: 'warning', buttons: ['Cancel', 'Restore this copy'], defaultId: 0, cancelId: 0,
+      title: 'Restore from the backup folder',
+      message: 'Replace ALL data on this computer with the copy from the backup folder?',
+      detail: 'Anything on this computer that is not in that copy will be gone. A safety copy of the current data is saved first.',
+    });
+    if (c.response !== 1) return null;
+    const res = needFolder().restore(name || undefined);
+    win.webContents.reload();
+    return res;
+  });
+  ipcMain.handle('sys:folderKeep', async () => {
+    const c = await dialog.showMessageBox(win, {
+      type: 'warning', buttons: ['Cancel', 'Use this computer'], defaultId: 0, cancelId: 0,
+      title: 'Replace the copy in the folder',
+      message: 'Replace the copy in the backup folder with the data on THIS computer?',
+      detail: 'Only choose this if the data on this computer is the correct and latest one.',
+    });
+    if (c.response !== 1) return null;
+    return needFolder().keepThisComputer();
+  });
+  ipcMain.handle('sys:folderStop', () => needFolder().stop());
+
   ipcMain.handle('sys:openBackups', () => shell.openPath(store.backupsDir));
 
   // ---- mobile access (phone app)
@@ -288,6 +331,7 @@ async function runSmokeTest() {
     if (s.total !== 20) return fail('sale total wrong');
     store.backup('smoke');
     if (!cloud || !['unconfigured', 'off'].includes(cloud.status().state)) return fail('cloud backup module did not load');
+    if (!folderBk || folderBk.status().state !== 'off') return fail('folder backup module did not load');
 
     // phone server: start on a free port, log in with a PIN, make a call, check a wrong PIN is refused
     service.setMobileAccess({ pin: 'smoke-pin-1' });
@@ -349,6 +393,7 @@ app.on('before-quit', (e) => {
     return;
   }
   try { if (mobile) mobile.stop(); } catch (_) { /* ignore */ }
+  try { if (folderBk && !SMOKE) folderBk.backupOnExit(); } catch (_) { /* ignore */ }
   try { if (store) store.close(); } catch (_) { /* ignore */ }
 });
 app.on('window-all-closed', () => app.quit());

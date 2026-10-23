@@ -10,24 +10,26 @@ App.pages.dashboard = {
         <div class="fill" style="height:${Math.round((x.sales / max) * 100)}%"></div>
         <div class="day">${dayName(x.date)}</div></div>`).join('');
 
+    const ico = (name, tone = '') => `<div class="stat-ico ${tone}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg></div>`;
     root.innerHTML = `
-      <div class="page-head">
-        <div><h1>Dashboard</h1><div class="sub">${esc(fmtDate(d.today))} · ${esc(dayName(d.today))}</div></div>
-        <div class="head-actions"><button class="btn primary lg" data-go="sale">+ New Sale</button></div>
+      <div class="hero">
+        <div><h1>Assalam-o-Alaikum 👋</h1>
+          <p>${esc(fmtDate(d.today))} · ${esc(dayName(d.today))} &nbsp;|&nbsp; Today so far: <b>${money(t.sales)}</b> from ${t.bills} bill${t.bills === 1 ? '' : 's'}</p></div>
+        <div class="head-actions"><button class="btn" data-go="customers">Customers &amp; Udhar</button><button class="btn primary lg" data-go="sale">+ New Sale</button></div>
       </div>
       <div class="stats s3">
-        <div class="card stat"><div class="label">Today's sales</div><div class="value">${money(t.sales)}</div>
-          <div class="hint">${t.bills} bill${t.bills === 1 ? '' : 's'} · ${qty(t.items_qty)} items</div></div>
-        <div class="card stat"><div class="label">Cash received today</div><div class="value teal">${money(t.cash_in)}</div>
-          <div class="hint">${money(t.paid_on_sale)} sales + ${money(t.recovered)} udhar recovered</div></div>
-        <div class="card stat"><div class="label">Udhar given today</div><div class="value ${t.udhar_given > 0 ? 'red' : ''}">${money(t.udhar_given)}</div>
-          <div class="hint">sold on credit</div></div>
-        <div class="card stat"><div class="label">Today's profit</div><div class="value">${money(t.profit)}</div>
-          <div class="hint">sale price − cost price</div></div>
-        <div class="card stat clickable" data-go="customers" data-arg="due"><div class="label">Total udhar to collect</div>
-          <div class="value red">${money(d.outstanding)}</div><div class="hint">${d.topDebtors.length ? 'tap to see who owes' : 'nobody owes you'}</div></div>
-        <div class="card stat clickable" data-go="products"><div class="label">Stock value (at cost)</div>
-          <div class="value">${money(d.stockValue)}</div><div class="hint">${d.lowStock.length} item${d.lowStock.length === 1 ? '' : 's'} low / out of stock</div></div>
+        <div class="card stat">${ico('rupee')}<div class="stat-txt"><div class="label">Today's sales</div><div class="value">${money(t.sales)}</div>
+          <div class="hint">${t.bills} bill${t.bills === 1 ? '' : 's'} · ${qty(t.items_qty)} items</div></div></div>
+        <div class="card stat">${ico('wallet', 'blue')}<div class="stat-txt"><div class="label">Cash received today</div><div class="value teal">${money(t.cash_in)}</div>
+          <div class="hint">${money(t.paid_on_sale)} sales + ${money(t.recovered)} udhar recovered</div></div></div>
+        <div class="card stat">${ico('alert', 'amber')}<div class="stat-txt"><div class="label">Udhar given today</div><div class="value ${t.udhar_given > 0 ? 'red' : ''}">${money(t.udhar_given)}</div>
+          <div class="hint">sold on credit</div></div></div>
+        <div class="card stat">${ico('trend', 'orange')}<div class="stat-txt"><div class="label">Today's profit</div><div class="value">${money(t.profit)}</div>
+          <div class="hint">sale price − cost price</div></div></div>
+        <div class="card stat clickable" data-go="customers" data-arg="due">${ico('customers', 'red')}<div class="stat-txt"><div class="label">Total udhar to collect</div>
+          <div class="value red">${money(d.outstanding)}</div><div class="hint">${d.topDebtors.length ? 'tap to see who owes' : 'nobody owes you'}</div></div></div>
+        <div class="card stat clickable" data-go="products">${ico('products')}<div class="stat-txt"><div class="label">Stock value (at cost)</div>
+          <div class="value">${money(d.stockValue)}</div><div class="hint">${d.lowStock.length} item${d.lowStock.length === 1 ? '' : 's'} low / out of stock</div></div></div>
       </div>
       <div class="grid2">
         <div class="card"><h2>Sales — last 7 days</h2><div class="bars">${bars}</div></div>

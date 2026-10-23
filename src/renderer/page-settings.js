@@ -36,7 +36,7 @@ App.pages.settings = {
           <label class="f"><span>Invoice prefix</span><input type="text" name="invoice_prefix" value="${esc(s.invoice_prefix)}"></label>
           <label class="f full"><span>Address</span><input type="text" name="shop_address" value="${esc(s.shop_address)}"></label>
           <label class="f full"><span>Line at the bottom of every invoice</span><input type="text" name="invoice_footer" value="${esc(s.invoice_footer)}"></label>
-          <label class="f"><span>Print size</span><select name="print_format"><option value="a4" ${s.print_format !== 'thermal' ? 'selected' : ''}>A4 / A5 paper</option><option value="thermal" ${s.print_format === 'thermal' ? 'selected' : ''}>Thermal receipt (80 mm)</option></select></label>
+          <label class="f"><span>Print size</span><select name="print_format">${Object.keys(PAPERS).map((k) => `<option value="${k}" ${paperOf(s) === k ? 'selected' : ''}>${esc(PAPERS[k].label)}</option>`).join('')}</select></label>
           <label class="f check" style="align-self:end"><input type="checkbox" name="allow_negative_stock" ${s.allow_negative_stock === '1' ? 'checked' : ''}><span style="margin:0">Allow selling when stock is 0</span></label>
           <div class="full"><button class="btn primary" id="saveShop">Save settings</button></div></div></div></div>
 
@@ -59,7 +59,9 @@ App.pages.settings = {
           ${backups.map((b) => `<tr><td>${esc(b.name)}</td><td>${esc(fmtStamp(b.modified))}</td><td class="r">${fmtBytes(b.size)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">No backups yet.</td></tr>'}
         </tbody></table></div></div></div>
 
-      <div class="card section-gap"><h2>Google backup (your data safe in your own Google Drive)</h2><div class="pad" id="cloudCard"><div class="muted">Loading…</div></div></div>
+      <div class="card section-gap"><h2>Automatic copy to a folder (USB, Google Drive, OneDrive…)</h2><div class="pad" id="folderCard"><div class="muted">Loading…</div></div></div>
+
+      <div class="card section-gap" id="cloudWrap"><h2>Google backup (your data safe in your own Google Drive)</h2><div class="pad" id="cloudCard"><div class="muted">Loading…</div></div></div>
 
       <div class="card section-gap"><h2>Mobile access (use on your phone)</h2><div class="pad" id="mobCard"><div class="muted">Loading…</div></div></div>`;
 
@@ -81,15 +83,65 @@ App.pages.settings = {
     el('bkTo').addEventListener('click', () => safe(async () => { const p = await window.sys.backupTo(); if (p) toast('Copy saved to ' + p, 'ok'); }));
     el('bkOpen').addEventListener('click', () => window.sys.openBackups());
     el('bkRestore').addEventListener('click', () => safe(async () => { const r = await window.sys.restore(); if (r) toast('Backup restored', 'ok'); }));
+    // ---- folder backup card
+    async function drawFolder() {
+      const f = await window.sys.folderStatus();
+      const card = el('folderCard');
+      const when = (iso) => (iso ? fmtStamp(iso) : 'not yet');
+      if (f.state === 'off') {
+        card.innerHTML = `
+          <p style="margin-top:0">Choose a folder and the software keeps a <b>copy of your data there automatically</b>, every few minutes after a change and when you close it. If this computer breaks, install the software on another computer, choose the same folder, and press <b>Bring that data here</b>.</p>
+          <ul class="small" style="margin:6px 0 12px 18px">
+            <li><b>USB drive or external disk:</b> plug it in and choose it.</li>
+            <li><b>Cloud (best):</b> if Google Drive, OneDrive or Dropbox is installed on this computer, choose a folder inside it. Then your data is also safe online.</li></ul>
+          <button class="btn primary" id="fbChoose">Choose backup folder…</button>`;
+        el('fbChoose').addEventListener('click', () => safe(async () => { const r = await window.sys.folderChoose(); if (r) toast(r.state === 'choice' ? 'A copy from another computer was found. Please choose what to do.' : 'Backup folder set. First copy saved.', r.state === 'choice' ? 'error' : 'ok'); drawFolder(); }));
+        return;
+      }
+      const badge = f.state === 'ok' ? '<span class="badge ok">ON</span>' : '<span class="badge">CHECK</span>';
+      let extra = '';
+      if (f.state === 'missing') extra = '<div class="red" style="margin:8px 0">The backup folder was not found. Is the USB drive plugged in? Nothing is lost; copies will continue when it is back.</div>';
+      else if (f.lastError) extra = `<div class="red" style="margin:8px 0">${esc(f.lastError)}</div>`;
+      if (f.state === 'choice') {
+        const x = f.choice || {};
+        extra = `<div class="card" style="border:2px solid var(--amber,#d97706);margin:12px 0"><div class="pad">
+          <b>A copy of shop data was found in this folder.</b>
+          <div class="small" style="margin:6px 0">${esc(x.shop || 'Shop')} · ${x.products || 0} products · ${x.sales || 0} bills · saved ${esc(x.at ? fmtStamp(x.at) : '')}</div>
+          <p class="small" style="margin:6px 0">It was made by another computer (or before this program was re-installed). <b>Nothing has been written from this computer yet</b>, so nothing is overwritten. What should happen?</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn primary" id="fbRestore">Bring that data here (replace this computer's data)</button>
+            <button class="btn danger" id="fbKeep">This computer's data is correct (replace the copy in the folder)</button></div></div></div>`;
+      }
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">${badge}<span>Copies go to: <b class="small" style="word-break:break-all">${esc(f.target)}</b></span></div>
+        <dl class="kv"><dt>Last copy saved</dt><dd>${esc(when(f.lastOk))}</dd></dl>
+        ${extra}
+        <p class="muted small">The last 30 days of copies are kept. Without the USB drive plugged in, the software works as usual.</p>
+        <div class="toolbar"><button class="btn primary" id="fbNow" ${f.state === 'choice' ? 'disabled' : ''}>Save a copy now</button>
+          <button class="btn" id="fbPick">Restore an older copy…</button><button class="btn" id="fbChange">Change folder…</button><span class="grow"></span><button class="btn" id="fbStop">Stop</button></div>
+        <div id="fbList"></div>`;
+      const run = (id, fn, redraw = true) => { const b = el(id); if (b) b.addEventListener('click', () => safe(async () => { try { await fn(); } finally { if (redraw) drawFolder(); } })); };
+      run('fbNow', async () => { await window.sys.folderBackupNow(); toast('Copy saved', 'ok'); });
+      run('fbChange', async () => { const r = await window.sys.folderChoose(); if (r) toast('Backup folder changed', 'ok'); });
+      run('fbRestore', async () => { const r = await window.sys.folderRestore(); if (r) toast('Data restored from the backup folder', 'ok'); });
+      run('fbKeep', async () => { const r = await window.sys.folderKeep(); if (r) toast('Copy in the folder replaced with this computer\'s data', 'ok'); });
+      run('fbStop', async () => { await window.sys.folderStop(); toast('Automatic folder copies stopped. Existing copies are kept.', 'ok'); });
+      run('fbPick', async () => {
+        const list = await window.sys.folderList();
+        el('fbList').innerHTML = `<div class="table-wrap" style="max-height:220px;margin-top:10px"><table><thead><tr><th>Copy</th><th>Saved</th><th class="r">Size</th><th></th></tr></thead><tbody>
+          ${list.map((x) => `<tr><td>${esc(x.name.replace('crockery-', '').replace('.db', ''))}</td><td>${esc(fmtStamp(x.at))}</td><td class="r">${fmtBytes(x.size)}</td><td class="r"><button class="btn small" data-rn="${esc(x.name)}">Restore</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">No copies yet.</td></tr>'}
+          </tbody></table></div>`;
+        el('fbList').querySelectorAll('[data-rn]').forEach((b) => b.addEventListener('click', () => safe(async () => { const r = await window.sys.folderRestore(b.dataset.rn); if (r) toast('Data restored from the backup folder', 'ok'); drawFolder(); })));
+      }, false);
+    }
+    drawFolder();
     // ---- Google Drive backup card
     async function drawCloud() {
       const c = await window.sys.cloudStatus();
       const card = el('cloudCard');
       const when = (iso) => (iso ? fmtStamp(iso) : 'not yet');
-      if (c.state === 'unconfigured') {
-        card.innerHTML = '<p style="margin:0">Google backup is <b>not switched on</b> in this copy of the software. Please ask your software provider to enable it.</p>';
-        return;
-      }
+      if (c.state === 'unconfigured') { card.innerHTML = ''; el('cloudWrap').hidden = true; return; }   // not set up by the provider: nothing to show
+      el('cloudWrap').hidden = false;
       if (!c.connected) {
         card.innerHTML = `
           <p style="margin-top:0">Sign in with your <b>Gmail</b> and the software keeps a copy of your data in <b>your own Google Drive</b>, automatically. If this computer breaks or is lost, install the software on any other computer, sign in with the same Gmail, and all your data comes back.</p>

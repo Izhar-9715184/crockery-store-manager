@@ -47,11 +47,11 @@ fs.mkdirSync(shots, { recursive: true });
     window.api = { call: async (n, ...a) => { const r = await window.__rpc(n, a); if (!r.ok) throw new Error(r.error); return r.data; } };
     window.sys = { info: () => window.__sysInfo(), checkUpdate: async () => ({ status: 'dev' }), installUpdate: async () => true,
       mobileStatus: () => window.__mobStatus(), mobileApply: async (o) => { const r = await window.__mobApply(o); if (!r.ok) throw new Error(r.error); return r.data; },
-      backupTo: async () => null, restore: async () => null, openBackups: async () => true, onUpdateStatus: () => {}, cloudStatus: async () => ({ configured: false, state: 'unconfigured', connected: false }) };
+      backupTo: async () => null, restore: async () => null, openBackups: async () => true, onUpdateStatus: () => {}, folderStatus: async () => ({ state: 'off', folder: '' }), cloudStatus: async () => ({ configured: false, state: 'unconfigured', connected: false }) };
     window.print = () => { window.__printed = (window.__printed || 0) + 1; };
   });
 
-  const shot = (name) => page.screenshot({ path: path.join(shots, name + '.png') });
+  const shot = async (name) => { await page.waitForTimeout(750); await page.screenshot({ path: path.join(shots, name + '.png') }); };   // wait for the entrance animations
   const nav = (label) => page.click(`#nav .nav-item:has-text("${label}")`);
   const toastText = async () => (await page.locator('.toast').last().textContent());
 
@@ -155,8 +155,23 @@ fs.mkdirSync(shots, { recursive: true });
   await page.waitForSelector('#rows tr[data-id]');
   assert.equal(await page.locator('#rows tr[data-id]').count(), 2);
   await page.click('#rows tr[data-id]:first-child');
-  await page.waitForSelector('.modal .invoice');
+  await page.waitForSelector('.modal .inv');
+  assert.match(await page.textContent('.modal .inv'), /Rupees Nine Hundred Only/);   // amount in words
+  assert.match(await page.textContent('.modal .inv'), /Remaining \(Udhaar\)/);
   await shot('05-invoice');
+  await page.click('.paper-pick [data-p=a4]');
+  await page.waitForSelector('.preview .inv.a4');
+  assert.match(await page.textContent('.preview'), /Customer signature/);
+  await shot('05b-invoice-a4');
+  await page.click('.paper-pick [data-p=thermal]');
+  await page.waitForSelector('.preview .inv.thermal');
+  await shot('05c-invoice-receipt');
+  await page.click('.paper-pick [data-p=a5]');
+  await page.waitForSelector('.preview .inv.a5');
+  await page.click('.modal footer .btn.primary');          // Print
+  await page.waitForTimeout(150);
+  assert.equal(await page.evaluate(() => window.__printed), 2, 'Print button prints');
+  assert.equal(svc.getSettings().print_format, 'a5', 'the chosen paper is remembered');
   await page.click('.modal [data-close]');
 
   // ---- ledger and payment
@@ -181,10 +196,46 @@ fs.mkdirSync(shots, { recursive: true });
   assert.equal(svc.getCustomer(1).balance, 1500);
   assert.equal(svc.listProducts({ q: 'tea' })[0].stock, 15);
 
+  // ---- Add Old Balance (paper register), one customer after the other
+  await nav('Customers');
+  await page.click('#oldbal');
+  await page.waitForSelector('.modal [name=name][list=obNames]');
+  await page.fill('.modal [name=name]', 'Ali Traders');
+  await page.waitForFunction(() => document.querySelector('#obHint').textContent.includes('Already owes'));
+  await page.fill('.modal [name=amount]', '700');
+  await page.fill('.modal [name=page]', '12');
+  await shot('10-old-balance');
+  await page.click('.modal footer .btn:has-text("Save & add next")');
+  await page.waitForSelector('#obTally:not([hidden])');
+  assert.match(await page.textContent('#obTally'), /1 saved so far/);
+  assert.equal(await page.inputValue('.modal [name=name]'), '', 'form is ready for the next customer');
+  assert.equal(svc.getCustomer(1).balance, 2200);
+  await page.fill('.modal [name=name]', 'Bilal Store');
+  await page.waitForFunction(() => document.querySelector('#obHint').textContent.includes('New customer'));
+  await page.fill('.modal [name=amount]', '300');
+  await page.fill('.modal [name=note]', 'Eid');
+  await page.click('.modal footer .btn.teal');             // Save (closes)
+  await page.waitForSelector('.overlay', { state: 'detached' });
+  assert.equal(svc.listCustomers({ q: 'Bilal' })[0].balance, 300);
+  assert.match(svc.customerLedger(1).entries[0].note, /register page 12/);
+  await page.click('#oldbal');                              // empty name is refused with a message
+  await page.click('.modal footer .btn.teal');
+  await page.waitForSelector('.toast.error');
+  assert.match(await toastText(), /customer name/);
+  await page.click('.modal [data-close]');
+
   // ---- dashboard / reports / settings
   await nav('Dashboard');
   await page.waitForSelector('.bars');
   await shot('07-dashboard');
+  await page.click('#themeBtn');                           // dark look
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
+  await shot('07b-dashboard-dark');
+  await nav('Customers');
+  await shot('07c-customers-dark');
+  await nav('Dashboard');
+  await page.click('#themeBtn');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
   await nav('Reports');
   await page.waitForSelector('#rep .stats');
   await shot('08-reports');

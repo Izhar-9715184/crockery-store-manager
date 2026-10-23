@@ -240,6 +240,39 @@ function createService(store) {
       return S.getCustomer(cust.id);
     });
 
+  /**
+   * Old udhar from the paper register. Picks the customer by id or by name (a new customer is created
+   * when the name is not known), and adds the amount to his udhar with the register page as a note.
+   */
+  S.addOldBalance = (p) =>
+    store.tx(() => {
+      let cust = null;
+      let created = false;
+      if (p.customer_id) {
+        cust = S.getCustomer(p.customer_id) || fail('Customer not found');
+      } else {
+        const name = clean(p.name);
+        if (!name) fail('Please choose or type the customer name');
+        const found = store.get('SELECT id FROM customers WHERE active=1 AND name = ? COLLATE NOCASE ORDER BY id', name);
+        if (found) cust = S.getCustomer(found.id);
+        else {
+          const r = store.run('INSERT INTO customers(name,phone,address,notes) VALUES(?,?,?,?)', name, clean(p.phone), '', '');
+          cust = S.getCustomer(r.id);
+          created = true;
+        }
+      }
+      const amount = r2(num(p.amount, 'Old balance', { min: 0 }));
+      if (amount <= 0) fail('Old balance must be greater than zero');
+      const page = clean(p.page);
+      const extra = clean(p.note);
+      const note = 'Old balance' + (page ? ` · register page ${page}` : '') + (extra ? ` · ${extra}` : '');
+      store.run(
+        'INSERT INTO ledger(customer_id,date,type,debit,credit,note) VALUES(?,?,?,?,?,?)',
+        cust.id, date(p.date), 'opening', amount, 0, note
+      );
+      return { customer: S.getCustomer(cust.id), created, amount };
+    });
+
   /** Manual correction of a customer's balance (+ increases udhar, - reduces it). */
   S.adjustCustomer = (p) =>
     store.tx(() => {

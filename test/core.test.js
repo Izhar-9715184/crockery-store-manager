@@ -248,3 +248,28 @@ test('migration: an update upgrades old data in place, with a backup, nothing lo
     dbmod.MIGRATIONS.length = original;
   }
 });
+
+test('old balance from the paper register: by name, new customer created, page noted, several entries add up', () => {
+  const { store, svc } = fresh();
+  const ali = svc.saveCustomer({ name: 'Ali Traders', phone: '0300' });
+  let r = svc.addOldBalance({ name: 'ali traders', amount: 5000, page: '12', date: '2026-01-05' });   // matches existing, any case
+  assert.equal(r.created, false);
+  assert.equal(r.customer.id, ali.id);
+  assert.equal(r.customer.balance, 5000);
+  r = svc.addOldBalance({ customer_id: ali.id, amount: 1500.5, note: 'diwali' });
+  assert.equal(r.customer.balance, 6500.5);
+  r = svc.addOldBalance({ name: 'New Buyer', amount: 800, page: '3' });                                // unknown name -> new customer
+  assert.equal(r.created, true);
+  assert.equal(r.customer.balance, 800);
+  const led = svc.customerLedger(ali.id).entries.reverse();
+  assert.match(led[0].note, /Old balance · register page 12/);
+  assert.equal(led[0].type, 'opening');
+  assert.match(led[1].note, /diwali/);
+  assert.equal(svc.listCustomers({}).length, 2, 'no duplicate customer was made');
+  // bad input changes nothing
+  assert.throws(() => svc.addOldBalance({ name: '', amount: 5 }), /customer name/);
+  assert.throws(() => svc.addOldBalance({ name: 'Ali Traders', amount: 0 }), /greater than zero/);
+  assert.throws(() => svc.addOldBalance({ name: 'Zed', amount: -4 }), Error);
+  assert.equal(svc.listCustomers({}).length, 2, 'a failed entry does not leave a half-made customer');
+  store.close();
+});

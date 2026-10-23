@@ -10,7 +10,7 @@
   "repository": "github:Izhar-9715184/crockery-store-manager",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/core.test.js test/server.test.js test/purchase.test.js test/cloud.test.js",
+    "test": "node --test test/core.test.js test/server.test.js test/purchase.test.js test/cloud.test.js test/folderbackup.test.js",
     "smoke": "electron . --smoke-test",
     "dist": "electron-builder --win --x64 --publish never",
     "release": "electron-builder --win --x64 --publish always"

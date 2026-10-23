@@ -34,6 +34,63 @@ function editCustomer(c, done) {
   });
 }
 
+/** Old udhar from the paper register, one customer after the other. */
+async function oldBalanceDialog(done) {
+  const people = await rpc('listCustomers', {});
+  let count = 0;
+  let sum = 0;
+  const m = modal({
+    title: 'Add Old Balance',
+    body: `<p class="muted" style="margin:0 0 14px">Enter what a customer already owes from your paper register. It is added to that customer's udhar. Later payments are received against it as usual.</p>
+      <div class="form-grid">
+        <label class="f full"><span>Customer name *</span><input type="text" name="name" list="obNames" autocomplete="off" placeholder="Choose from the list or type a new name">
+          <datalist id="obNames">${people.map((c) => `<option value="${esc(c.name)}">${esc(c.phone || c.address || '')}</option>`).join('')}</datalist></label>
+        <label class="f"><span>Old balance (Rs) *</span><input type="number" name="amount" min="0" step="any" placeholder="0"></label>
+        <label class="f"><span>Date (optional)</span><input type="date" name="date" value="${today()}"></label>
+        <label class="f"><span>Register page no. (optional)</span><input type="text" name="page" placeholder="e.g. 12"></label>
+        <label class="f"><span>Note (optional)</span><input type="text" name="note" placeholder="e.g. Eid shopping"></label>
+        <div class="full ob-hint" id="obHint"></div>
+        <div class="full ob-tally" id="obTally" hidden></div></div>`,
+    actions: [
+      { label: 'Cancel' },
+      { label: 'Save & add next', close: false, onClick: (mm) => save(mm, true) },
+      { label: 'Save', kind: 'teal', close: false, onClick: (mm) => save(mm, false) },
+    ],
+  });
+  const q = (n) => $(`[name=${n}]`, m.body);
+  // show the current udhar of the typed customer, or tell that a new customer will be created
+  const hint = () => {
+    const nm = q('name').value.trim().toLowerCase();
+    const c = nm && people.find((x) => x.name.toLowerCase() === nm);
+    $('#obHint', m.body).innerHTML = !nm ? '' : c
+      ? `Already owes <b class="${c.balance > 0 ? 'red' : ''}">${money(c.balance)}</b>. The old balance will be added to this.`
+      : '<span class="teal">New customer — will be created automatically.</span>';
+  };
+  q('name').addEventListener('input', hint);
+  async function save(mm, next) {
+    const f = formData(mm.body);
+    const r = await rpc('addOldBalance', f);
+    count += 1; sum += r.amount;
+    if (r.created) people.push({ ...r.customer });
+    else { const x = people.find((c) => c.id === r.customer.id); if (x) x.balance = r.customer.balance; }
+    if (done) done();
+    if (!next) { mm.close(); toast(`Old balance saved for ${r.customer.name}. Now owes ${money(r.customer.balance)}`, 'ok'); return false; }
+    toast(`Saved: ${r.customer.name} · ${money(r.amount)}`, 'ok');
+    const t = $('#obTally', mm.body);
+    t.hidden = false;
+    t.innerHTML = `✔ ${count} saved so far · ${money(sum)} in total`;
+    // ready for the next customer: keep the date, clear the rest
+    for (const n of ['name', 'amount', 'page', 'note']) q(n).value = '';
+    hint();
+    q('name').focus();
+    return false;
+  }
+  m.body.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); $('footer .btn.teal', m.el).click(); }
+  });
+  return m;
+}
+
 function receivePaymentDialog(c, done) {
   modal({
     title: `Receive payment — ${c.name}`,
@@ -107,7 +164,7 @@ App.pages.customers = {
     if (arg === 'due') st.due = true;
     root.innerHTML = `
       <div class="page-head"><div><h1>Customers &amp; Udhar</h1><div class="sub" id="sub"></div></div>
-        <div class="head-actions"><button class="btn" id="exp">Export CSV</button><button class="btn primary" id="add">+ Add customer</button></div></div>
+        <div class="head-actions"><button class="btn" id="exp">Export CSV</button><button class="btn teal" id="oldbal">Add Old Balance</button><button class="btn primary" id="add">+ Add customer</button></div></div>
       <div class="toolbar"><input type="search" id="q" placeholder="Search name, phone or area…" class="grow">
         <div class="seg" id="seg"><button data-d="0">All customers</button><button data-d="1">Udhar pending</button></div></div>
       <div class="card table-card"><div class="table-wrap" style="max-height:calc(100vh - 230px)"><table>
@@ -131,6 +188,7 @@ App.pages.customers = {
     el('q').addEventListener('input', debounce(load, 150));
     el('seg').addEventListener('click', (e) => { if (e.target.dataset.d !== undefined) { st.due = e.target.dataset.d === '1'; load(); } });
     el('add').addEventListener('click', () => editCustomer(null, load));
+    el('oldbal').addEventListener('click', () => oldBalanceDialog(load));
     el('exp').addEventListener('click', () => downloadCsv(`customers-${today()}.csv`, [['Name', 'Phone', 'Address', 'Udhar pending'],
       ...rows.map((c) => [c.name, c.phone, c.address, c.balance])]));
     el('rows').addEventListener('click', (e) => {

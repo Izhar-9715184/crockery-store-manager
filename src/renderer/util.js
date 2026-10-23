@@ -163,7 +163,19 @@ function downloadCsv(filename, rows) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
-function printHtml(html) {
+// Paper sizes for printing. "size" goes into the page rule so the printer gets the right paper.
+const PAPERS = {
+  a5: { label: 'A5 (half page)', size: 'A5 portrait', margin: '7mm' },
+  a4: { label: 'A4 (full page)', size: 'A4 portrait', margin: '10mm' },
+  thermal: { label: 'Receipt 80mm', size: '80mm auto', margin: '3mm' },
+};
+const paperOf = (s = App.settings) => (PAPERS[s.print_format] ? s.print_format : 'a5');
+
+function printHtml(html, paper) {
+  const p = PAPERS[paper] || PAPERS.a4;
+  let st = $('#print-page-style');
+  if (!st) { st = document.createElement('style'); st.id = 'print-page-style'; document.head.append(st); }
+  st.textContent = `@page { size: ${p.size}; margin: ${p.margin}; }`;
   const area = $('#print-area');
   area.innerHTML = html;
   const clear = () => { area.innerHTML = ''; window.removeEventListener('afterprint', clear); };
@@ -171,52 +183,133 @@ function printHtml(html) {
   setTimeout(() => window.print(), 50);
 }
 
-function shopHeader(s) {
-  return `<h2>${esc(s.shop_name)}</h2>
-    <div class="center">${esc(s.shop_address || '')}${s.shop_phone ? `<br>Phone: ${esc(s.shop_phone)}` : ''}</div>`;
+/** 115000 -> "Rupees One Lakh Fifteen Thousand Only" (Pakistani lakh / crore system). */
+function amountWords(n) {
+  const v = Math.round(Math.abs(Number(n) || 0) * 100) / 100;
+  const rupees = Math.floor(v);
+  const paisa = Math.round((v - rupees) * 100);
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen',
+    'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const two = (x) => (x < 20 ? ones[x] : tens[Math.floor(x / 10)] + (x % 10 ? '-' + ones[x % 10] : ''));
+  const three = (x) => (x >= 100 ? ones[Math.floor(x / 100)] + ' Hundred' + (x % 100 ? ' ' + two(x % 100) : '') : two(x));
+  const parts = [];
+  const crore = Math.floor(rupees / 1e7);
+  const lakh = Math.floor((rupees % 1e7) / 1e5);
+  const thousand = Math.floor((rupees % 1e5) / 1e3);
+  const rest = rupees % 1000;
+  if (crore) parts.push(three(crore) + ' Crore');
+  if (lakh) parts.push(two(lakh) + ' Lakh');
+  if (thousand) parts.push(two(thousand) + ' Thousand');
+  if (rest) parts.push(three(rest));
+  const words = parts.length ? parts.join(' ') : 'Zero';
+  return `Rupees ${words}${paisa ? ' and ' + two(paisa) + ' Paisa' : ''} Only`;
 }
 
-function invoiceHtml(sale, s = App.settings) {
-  const thermal = s.print_format === 'thermal';
-  const rows = sale.items.map((i) => `<tr><td>${esc(i.name)}</td><td class="r">${qty(i.qty)}</td>
-      <td class="r">${qty(i.price)}</td><td class="r">${qty(i.total)}</td></tr>`).join('');
-  return `<div class="invoice ${thermal ? 'thermal' : ''}">
-    ${shopHeader(s)}
-    <div class="meta"><div><b>Invoice:</b> ${esc(sale.invoice_no)}<br><b>Date:</b> ${esc(fmtDate(sale.date))}</div>
-      <div style="text-align:right"><b>Customer:</b> ${esc(sale.customer_name || 'Walk-in')}${sale.customer_phone ? `<br>${esc(sale.customer_phone)}` : ''}</div></div>
-    ${sale.status === 'cancelled' ? '<div class="stamp">CANCELLED</div>' : ''}
-    <table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="tot">
-      <div><span>Subtotal</span><span>${money(sale.subtotal)}</span></div>
-      ${sale.discount > 0 ? `<div><span>Discount</span><span>- ${money(sale.discount)}</span></div>` : ''}
-      <div class="grand"><span>Total</span><span>${money(sale.total)}</span></div>
-      <div><span>Received</span><span>${money(sale.paid)}</span></div>
-      ${sale.due > 0 ? `<div><b>Balance (Udhar)</b><b>${money(sale.due)}</b></div>` : ''}
-      ${sale.customer_id && sale.customer_balance > 0 ? `<div><span>Total udhar of customer</span><span>${money(sale.customer_balance)}</span></div>` : ''}
-    </div>
-    ${sale.note ? `<p><b>Note:</b> ${esc(sale.note)}</p>` : ''}
-    <p class="center" style="margin-top:14px">${esc(s.invoice_footer || '')}</p>
-  </div>`;
+const initialOf = (s) => esc((String(s.shop_name || 'S').trim()[0] || 'S').toUpperCase());
+const timeOf = (iso) => {
+  const m = /(\d{2}):(\d{2})/.exec(String(iso || '').slice(11));
+  if (!m) return '';
+  const hr = Number(m[1]);
+  return `${hr % 12 || 12}:${m[2]} ${hr < 12 ? 'AM' : 'PM'}`;
+};
+
+/** Coloured shop header used by every printout. `title` is the big word on the right (INVOICE, STATEMENT ...). */
+function shopHeader(s, title = '', sub = '') {
+  return `<div class="inv-head"><div class="inv-logo">${initialOf(s)}</div>
+    <div class="inv-shop"><div class="inv-name">${esc(s.shop_name)}</div>
+      <div class="inv-sub">${esc([s.shop_address, s.shop_phone ? 'Phone: ' + s.shop_phone : ''].filter(Boolean).join(' · '))}</div></div>
+    ${title ? `<div class="inv-title"><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</div>` : ''}</div>`;
+}
+
+function invoiceHtml(sale, s = App.settings, paper = paperOf(s)) {
+  const cancelled = sale.status === 'cancelled';
+  if (paper === 'thermal') {
+    const rows = sale.items.map((i) => `<tr><td colspan="3" class="nm">${esc(i.name)}</td></tr>
+      <tr><td>${qty(i.qty)} × ${qty(i.price)}</td><td></td><td class="r">${qty(i.total)}</td></tr>`).join('');
+    return `<div class="inv thermal">
+      <div class="th-head"><div class="inv-logo">${initialOf(s)}</div><div class="inv-name">${esc(s.shop_name)}</div>
+        <div class="th-sub">${esc(s.shop_address || '')}${s.shop_phone ? '<br>Phone: ' + esc(s.shop_phone) : ''}</div></div>
+      <div class="th-meta"><span>${esc(sale.invoice_no)}</span><span>${esc(fmtDate(sale.date))} ${esc(timeOf(sale.created_at))}</span></div>
+      <div class="th-meta"><span>${esc(sale.customer_name || 'Walk-in customer')}</span><span>${sale.due > 0 ? 'CREDIT' : 'CASH'}</span></div>
+      ${cancelled ? '<div class="stamp">CANCELLED</div>' : ''}
+      <table><tbody>${rows}</tbody></table>
+      <div class="tot">
+        <div><span>Subtotal</span><span>${money(sale.subtotal)}</span></div>
+        ${sale.discount > 0 ? `<div><span>Discount</span><span>- ${money(sale.discount)}</span></div>` : ''}
+        <div class="grand"><span>TOTAL</span><span>${money(sale.total)}</span></div>
+        <div><span>Received</span><span>${money(sale.paid)}</span></div>
+        ${sale.due > 0 ? `<div class="due"><span>Remaining (Udhar)</span><span>${money(sale.due)}</span></div>` : ''}
+        ${sale.customer_id && sale.customer_balance > 0 ? `<div><span>Total pending</span><span>${money(sale.customer_balance)}</span></div>` : ''}
+      </div>
+      ${sale.note ? `<div class="th-note">${esc(sale.note)}</div>` : ''}
+      <div class="th-thanks">${esc(s.invoice_footer || 'Thank you for shopping with us!')}</div></div>`;
+  }
+  const rows = sale.items.map((i, n) => `<tr><td class="c">${n + 1}</td><td>${esc(i.name)}</td>
+      <td class="r">${qty(i.qty)}</td><td class="r">${qty(i.price)}</td><td class="r"><b>${qty(i.total)}</b></td></tr>`).join('');
+  const addr = [sale.customer_phone, sale.customer_address].filter(Boolean).join(' · ');
+  return `<div class="inv ${paper}">
+    ${shopHeader(s, 'INVOICE', sale.due > 0 ? 'Credit Memo' : 'Cash Memo')}
+    <div class="inv-body">
+      <div class="inv-boxes">
+        <div class="inv-box"><div class="inv-k">Billed to</div><div class="inv-v">${esc(sale.customer_name || 'Walk-in customer')}</div>${addr ? `<div class="inv-s">${esc(addr)}</div>` : ''}</div>
+        <div class="inv-box"><dl><dt>Bill No.</dt><dd><b>${esc(sale.invoice_no)}</b></dd><dt>Date</dt><dd>${esc(fmtDate(sale.date))}</dd>${sale.created_at ? `<dt>Time</dt><dd>${esc(timeOf(sale.created_at))}</dd>` : ''}</dl></div>
+      </div>
+      ${cancelled ? '<div class="stamp">CANCELLED</div>' : ''}
+      <table class="inv-table"><thead><tr><th class="c">#</th><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="inv-foot">
+        <div class="inv-words"><div class="inv-k">Amount in words</div><div>${esc(amountWords(sale.total))}</div>
+          ${sale.note ? `<div class="inv-k" style="margin-top:8px">Note</div><div>${esc(sale.note)}</div>` : ''}</div>
+        <div class="inv-totals">
+          <div class="row"><span>Subtotal</span><span>${money(sale.subtotal)}</span></div>
+          ${sale.discount > 0 ? `<div class="row"><span>Discount</span><span>- ${money(sale.discount)}</span></div>` : ''}
+          <div class="row grand"><span>Total</span><span>${money(sale.total)}</span></div>
+          <div class="row"><span>Received</span><span>${money(sale.paid)}</span></div>
+          ${sale.due > 0 ? `<div class="row due"><span>Remaining (Udhaar)</span><span>${money(sale.due)}</span></div>` : ''}
+          ${sale.customer_id && sale.customer_balance > 0 ? `<div class="row small"><span>Total pending (all bills)</span><span>${money(sale.customer_balance)}</span></div>` : ''}
+        </div>
+      </div>
+      <div class="inv-thanks">${esc(s.invoice_footer || 'Thank you for shopping with us!')}</div>
+      ${paper === 'a4' ? '<div class="inv-sign"><span>Customer signature</span><span>Authorised signature</span></div>' : ''}
+    </div></div>`;
 }
 
 function statementHtml(led, s = App.settings) {
-  const rows = led.entries.slice().reverse().map((e) => `<tr><td>${esc(fmtDate(e.date))}</td>
+  const rows = led.entries.slice().reverse().map((e, n) => `<tr><td>${esc(fmtDate(e.date))}</td>
     <td>${esc(e.note || e.type)}</td><td class="r">${e.debit ? qty(e.debit) : ''}</td>
-    <td class="r">${e.credit ? qty(e.credit) : ''}</td><td class="r">${qty(e.balance)}</td></tr>`).join('');
-  return `<div class="invoice">${shopHeader(s)}
-    <h2 style="font-size:16px;margin:12px 0 2px">Account statement</h2>
-    <div class="center">${esc(led.customer.name)} ${led.customer.phone ? '· ' + esc(led.customer.phone) : ''}<br>As of ${esc(fmtDate(today()))}</div>
-    <table><thead><tr><th>Date</th><th>Details</th><th class="r">Udhar</th><th class="r">Paid</th><th class="r">Balance</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="tot"><div class="grand"><span>Balance due</span><span>${money(led.customer.balance)}</span></div></div></div>`;
+    <td class="r">${e.credit ? qty(e.credit) : ''}</td><td class="r"><b>${qty(e.balance)}</b></td></tr>`).join('');
+  const c = led.customer;
+  return `<div class="inv a4">${shopHeader(s, 'STATEMENT', 'Account of udhar')}
+    <div class="inv-body">
+      <div class="inv-boxes">
+        <div class="inv-box"><div class="inv-k">Customer</div><div class="inv-v">${esc(c.name)}</div>${[c.phone, c.address].filter(Boolean).length ? `<div class="inv-s">${esc([c.phone, c.address].filter(Boolean).join(' · '))}</div>` : ''}</div>
+        <div class="inv-box"><dl><dt>As of</dt><dd>${esc(fmtDate(today()))}</dd><dt>Entries</dt><dd>${led.entries.length}</dd></dl></div>
+      </div>
+      <table class="inv-table"><thead><tr><th>Date</th><th>Details</th><th class="r">Udhar</th><th class="r">Paid</th><th class="r">Balance</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="inv-foot"><div class="inv-words"><div class="inv-k">Amount in words</div><div>${esc(amountWords(Math.max(0, c.balance)))}</div></div>
+        <div class="inv-totals"><div class="row grand ${c.balance > 0 ? 'due2' : ''}"><span>Balance due</span><span>${money(c.balance)}</span></div></div></div>
+      <div class="inv-thanks">${esc(s.invoice_footer || 'Thank you!')}</div>
+    </div></div>`;
 }
 
-/** Shows an invoice in a window with Print / Cancel buttons. */
+/** Print the bill straight away on the paper the shop chose in Settings. */
+function printSale(sale) { printHtml(invoiceHtml(sale), paperOf()); }
+
+/** Preview of a bill with a paper-size picker and Print / Cancel-sale buttons. */
 async function showInvoice(saleId, { onChange } = {}) {
   const sale = await rpc('getSale', saleId);
+  let paper = paperOf();
+  const draw = () => {
+    $$('.paper-pick button', m.body).forEach((b) => b.classList.toggle('on', b.dataset.p === paper));
+    $('.preview', m.body).innerHTML = invoiceHtml(sale, App.settings, paper);
+    $('.preview', m.body).className = 'preview ' + paper;
+  };
   const m = modal({
-    title: `Invoice ${sale.invoice_no}`,
+    title: `Print Bill ${sale.invoice_no}`,
     wide: true,
-    body: `<div style="max-width:720px;margin:0 auto">${invoiceHtml(sale)}</div>`,
+    body: `<div class="paper-pick">${Object.keys(PAPERS).map((k) => `<button data-p="${k}">${esc(PAPERS[k].label)}</button>`).join('')}</div>
+      <div class="preview-wrap"><div class="preview"></div></div>
+      <p class="muted small" style="margin:10px 0 0">In the print window choose your printer. If the bill looks cut off, set Margins to “Default” and untick “Headers and footers”.</p>`,
     actions: [
       ...(sale.status === 'active' ? [{
         label: 'Cancel this sale', kind: 'danger', close: false,
@@ -230,9 +323,17 @@ async function showInvoice(saleId, { onChange } = {}) {
         },
       }] : []),
       { label: 'Close' },
-      { label: 'Print', kind: 'primary', close: false, onClick: () => printHtml(invoiceHtml(sale)) },
+      { label: 'Print', kind: 'primary', close: false, onClick: () => printHtml(invoiceHtml(sale, App.settings, paper), paper) },
     ],
   });
+  m.body.addEventListener('click', async (e) => {
+    const b = e.target.closest('.paper-pick button');
+    if (!b) return;
+    paper = b.dataset.p;
+    draw();
+    try { App.settings = await rpc('saveSettings', { print_format: paper }); } catch (_) { /* choice just is not remembered */ }
+  });
+  draw();
   return m;
 }
 
@@ -244,4 +345,10 @@ const ICONS = {
   customers: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
   reports: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
   settings: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  rupee: '<path d="M6 3h12M6 8h12M9 13h3a4 4 0 0 0 0-8M9 13l6 8"/>',
+  wallet: '<path d="M20 12V8a2 2 0 0 0-2-2H5a2 2 0 0 1 0-4h13"/><path d="M3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/><path d="M17 12h5v4h-5a2 2 0 0 1 0-4z"/>',
+  trend: '<path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
+  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
 };

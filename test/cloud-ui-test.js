@@ -26,9 +26,19 @@ fs.mkdirSync(shots, { recursive: true });
     const cloud = { state: 'off', calls: [] };
     window.__cloud = cloud;
     const st = () => ({ configured: cloud.state !== 'unconfigured', connected: ['ok', 'choice', 'error'].includes(cloud.state), state: cloud.state, email: 'shop@gmail.com', lastOk: '2026-10-22T10:00:00', lastError: cloud.state === 'error' ? 'No internet connection. It will try again by itself.' : '', choice: cloud.state === 'choice' ? { shop: 'Rafiq Crockery', products: 42, sales: 310, at: '2026-10-21T20:15:00' } : null });
+    const folder = { state: 'off', found: false };
+    window.__folder = folder;
+    const fst = () => ({ state: folder.state, folder: 'E:\\', target: 'E:\\Crockery Store Backup', lastOk: '2026-10-22T10:00:00', lastError: '', choice: folder.state === 'choice' ? { shop: 'Rafiq Crockery', products: 42, sales: 310, at: '2026-10-21T20:15:00' } : null });
     window.api = { call: async (n, ...a) => { const r = await window.__rpc(n, a); if (!r.ok) throw new Error(r.error); return r.data; } };
     window.sys = { info: () => window.__sysInfo(), checkUpdate: async () => ({ status: 'dev' }), installUpdate: async () => true, backupTo: async () => null, restore: async () => null, openBackups: async () => true, onUpdateStatus: () => {},
       mobileStatus: async () => ({ config: { enabled: false, port: 8765, hasPin: false }, running: false }), mobileApply: async () => ({}),
+      folderStatus: async () => fst(),
+      folderChoose: async () => { cloud.calls.push('f-choose'); folder.state = folder.found ? 'choice' : 'ok'; return fst(); },
+      folderBackupNow: async () => { cloud.calls.push('f-now'); return fst(); },
+      folderList: async () => [{ name: 'crockery-latest.db', at: '2026-10-22T09:00:00', size: 90000 }, { name: 'crockery-2026-10-21.db', at: '2026-10-21T20:00:00', size: 88000 }],
+      folderRestore: async (n) => { cloud.calls.push('f-restore:' + (n || 'latest')); folder.state = 'ok'; return {}; },
+      folderKeep: async () => { cloud.calls.push('f-keep'); folder.state = 'ok'; return fst(); },
+      folderStop: async () => { cloud.calls.push('f-stop'); folder.state = 'off'; return fst(); },
       cloudStatus: async () => st(),
       cloudConnect: async () => { cloud.calls.push('connect'); cloud.state = 'choice'; return st(); },
       cloudBackupNow: async () => { cloud.calls.push('now'); return st(); },
@@ -39,12 +49,42 @@ fs.mkdirSync(shots, { recursive: true });
   });
   await page.goto('file://' + path.resolve(__dirname, '../src/renderer/index.html'));
   await page.waitForFunction(() => window.__appReady === true);
-  const open = async () => { await page.click('#nav .nav-item:has-text("Settings")'); await page.waitForSelector('#cloudCard button, #cloudCard p'); };
+  const open = async () => { await page.click('#nav .nav-item:has-text("Settings")'); await page.waitForFunction(() => { const a = document.querySelector('#cloudCard'); const b = document.querySelector('#folderCard'); return a && b && !a.textContent.includes('Loading') && !b.textContent.includes('Loading'); }); };
   const card = () => page.textContent('#cloudCard');
 
   await page.evaluate(() => { window.__cloud.state = 'unconfigured'; });
   await open();
-  assert.match(await card(), /not switched on/);
+  assert.equal(await page.locator('#cloudWrap').isHidden(), true, 'Google card is hidden when not set up');
+
+  // ---- folder backup card
+  assert.match(await page.textContent('#folderCard'), /Choose a folder/);
+  await page.screenshot({ path: path.join(shots, 'f1-off.png') });
+  await page.click('#fbChoose');
+  await page.waitForSelector('#fbNow');
+  assert.match(await page.textContent('#folderCard'), /Crockery Store Backup/);
+  await page.screenshot({ path: path.join(shots, 'f2-on.png') });
+  await page.click('#fbNow');
+  await page.click('#fbPick');
+  await page.waitForSelector('[data-rn]');
+  assert.equal(await page.locator('[data-rn]').count(), 2);
+  await page.click('[data-rn="crockery-2026-10-21.db"]');
+  await page.click('#fbStop');
+  await page.waitForSelector('#fbChoose');
+  await page.evaluate(() => { window.__folder.found = true; });
+  await page.click('#fbChoose');                               // a copy from another computer is already there
+  await page.waitForSelector('#fbRestore');
+  assert.match(await page.textContent('#folderCard'), /Rafiq Crockery · 42 products · 310 bills/);
+  assert.equal(await page.locator('#fbNow').isDisabled(), true);
+  await page.screenshot({ path: path.join(shots, 'f3-choice.png') });
+  await page.click('#fbRestore');
+  await page.waitForSelector('#fbNow:not([disabled])');
+  await page.click('#fbChange');
+  await page.waitForSelector('#fbRestore');
+  await page.click('#fbKeep');
+  await page.waitForSelector('#fbNow:not([disabled])');
+  assert.deepEqual((await page.evaluate(() => window.__cloud.calls)).filter((c) => c.startsWith('f-')),
+    ['f-choose', 'f-now', 'f-restore:crockery-2026-10-21.db', 'f-stop', 'f-choose', 'f-restore:latest', 'f-choose', 'f-keep']);
+  await page.evaluate(() => { window.__cloud.calls.length = 0; });
 
   await page.evaluate(() => { window.__cloud.state = 'off'; });
   await open();

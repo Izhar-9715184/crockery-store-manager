@@ -163,7 +163,7 @@ App.pages.sale = {
           note: cart.note,
         });
         toast(`Saved ${sale.invoice_no} · ${money(sale.total)}${sale.due > 0 ? ' · udhar ' + money(sale.due) : ''}`, 'ok');
-        if (print) printHtml(invoiceHtml(sale));
+        if (print) printSale(sale);
         App.cart = null;
         App.go('sale');
       });

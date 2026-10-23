@@ -41,7 +41,25 @@ function drawBanners(u, recovered) {
   $('#updateDot').hidden = !(u && u.status === 'ready');
 }
 
+// light / dark look, remembered on this computer
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  const b = $('#themeBtn');
+  if (b) b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${t === 'dark' ? ICONS.sun : ICONS.moon}</svg><span>${t === 'dark' ? 'Light look' : 'Dark look'}</span>`;
+}
+function initTheme() {
+  let t = 'light';
+  try { t = localStorage.getItem('crockery.theme') || 'light'; } catch (_) { /* storage may be unavailable */ }
+  applyTheme(t);
+  $('#themeBtn').addEventListener('click', () => {
+    t = t === 'dark' ? 'light' : 'dark';
+    applyTheme(t);
+    try { localStorage.setItem('crockery.theme', t); } catch (_) { /* just not remembered */ }
+  });
+}
+
 async function boot() {
+  initTheme();
   $('#nav').innerHTML = NAV.map((n) => `<button class="nav-item ${n.primary ? 'primary' : ''}" data-id="${n.id}">
     <svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[n.icon]}</svg><span>${n.label}</span></button>`).join('');
   $('#nav').addEventListener('click', (e) => {
