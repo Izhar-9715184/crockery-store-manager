@@ -287,77 +287,182 @@ function createService(store) {
       return S.getCustomer(cust.id);
     });
 
+  /**
+   * Fix a wrongly typed udhar-register entry: a payment received, an old balance, or a manual correction.
+   * (Entries that belong to a bill are fixed by editing the bill.)
+   */
+  S.updateLedgerEntry = (i) =>
+    store.tx(() => {
+      const e = store.get('SELECT * FROM ledger WHERE id=?', i.id) || fail('Entry not found');
+      if (e.type === 'credit_sale' || e.type === 'sale_cancel') fail('This entry belongs to a bill. Open the bill and use "Edit bill".');
+      const amount = r2(num(i.amount, 'Amount'));
+      if (amount === 0) fail('Amount cannot be zero');
+      let debit = 0, credit = 0;
+      if (e.type === 'payment') {
+        if (amount < 0) fail('Amount must be greater than zero');
+        credit = amount;
+      } else if (e.type === 'opening' || e.type === 'adjust') {
+        if (e.type === 'adjust' && !clean(i.note)) fail('Please write a reason for this correction');
+        if (amount > 0) debit = amount; else credit = -amount;
+      } else fail('This entry cannot be edited');
+      const d = date(i.date);
+      const method = e.type === 'payment' ? (clean(i.method) || e.method || 'cash') : e.method;
+      const note = i.note === undefined ? e.note : clean(i.note);
+      store.run(`UPDATE ledger SET date=?, debit=?, credit=?, method=?, note=?, edited_at=datetime('now','localtime') WHERE id=?`,
+        d, debit, credit, method, note, e.id);
+      const pick = (x) => ({ date: x.date, debit: x.debit, credit: x.credit, method: x.method, note: x.note });
+      logEdit('ledger', e.id, e.type, pick(e), pick(store.get('SELECT * FROM ledger WHERE id=?', e.id)));
+      return S.getCustomer(e.customer_id);
+    });
+
+  /** Fix a wrongly entered "maal aaya" (stock in) record: quantity, cost, date, supplier. */
+  S.updateStockIn = (i) =>
+    store.tx(() => {
+      const m = store.get('SELECT * FROM stock_moves WHERE id=?', i.id) || fail('Stock entry not found');
+      if (m.type !== 'purchase' && m.type !== 'opening') fail('Only stock-in entries can be edited');
+      const prod = store.get('SELECT * FROM products WHERE id=?', m.product_id) || fail('Product not found');
+      const q = num(i.qty, 'Quantity', { min: 0 });
+      if (q <= 0) fail('Quantity must be greater than zero');
+      const cost = r2(num(i.cost_price, 'Cost price', { min: 0, allowEmpty: true }));
+      const delta = q - m.qty;
+      const settings = S.getSettings();
+      if (settings.allow_negative_stock !== '1' && prod.stock + delta < 0) {
+        fail(`Cannot reduce to ${q}: part of this stock is already sold. Lowest possible quantity is ${m.qty - prod.stock}`);
+      }
+      const newCost = cost > 0 ? cost : m.cost_price;
+      store.run(`UPDATE stock_moves SET qty=?, cost_price=?, date=?, supplier=?, note=?, edited_at=datetime('now','localtime') WHERE id=?`,
+        q, newCost, date(i.date || m.date), i.supplier === undefined ? m.supplier : clean(i.supplier),
+        i.note === undefined ? m.note : clean(i.note), m.id);
+      store.run('UPDATE products SET stock = stock + ? WHERE id=?', delta, prod.id);
+      // the product's cost price follows the newest stock-in
+      const latest = store.get(
+        `SELECT id, cost_price FROM stock_moves WHERE product_id=? AND type IN ('purchase','opening') ORDER BY (type='purchase') DESC, date DESC, id DESC LIMIT 1`,
+        prod.id);
+      if (latest && latest.id === m.id && newCost > 0) store.run('UPDATE products SET cost_price=? WHERE id=?', newCost, prod.id);
+      const pick = (x) => ({ qty: x.qty, cost_price: x.cost_price, date: x.date, supplier: x.supplier, note: x.note });
+      logEdit('stock_in', m.id, prod.name, pick(m), pick(store.get('SELECT * FROM stock_moves WHERE id=?', m.id)));
+      return store.get('SELECT * FROM products WHERE id=?', prod.id);
+    });
+
   // ------------------------------------------------------------ sales
+  /**
+   * Validates a bill and works out its totals (shared by "new sale" and "edit sale").
+   * oldCost: product_id -> cost that was stored on the bill being edited (kept, so an edit never changes old profit).
+   */
+  function prepareSale(input, settings, oldCost = new Map()) {
+    const items = Array.isArray(input.items) ? input.items : [];
+    if (!items.length) fail('The cart is empty');
+    const saleDate = date(input.date);
+
+    let customer = null;
+    if (input.customer_id) {
+      customer = store.get('SELECT * FROM customers WHERE id=? AND active=1', input.customer_id) || fail('Customer not found');
+    }
+
+    // validate lines + stock (same product may appear on several lines)
+    const lines = [];
+    const need = new Map();
+    for (const it of items) {
+      const prod = store.get('SELECT * FROM products WHERE id=? AND active=1', it.product_id) || fail('A product in the cart no longer exists');
+      const qty = num(it.qty, `Quantity of ${prod.name}`);
+      if (qty <= 0) fail(`Quantity of ${prod.name} must be greater than zero`);
+      const price = r2(num(it.price, `Price of ${prod.name}`, { min: 0 }));
+      lines.push({ prod, qty, price, cost: oldCost.has(prod.id) ? oldCost.get(prod.id) : prod.cost_price });
+      need.set(prod.id, (need.get(prod.id) || 0) + qty);
+    }
+    if (settings.allow_negative_stock !== '1') {
+      for (const [pid, q] of need) {
+        const p = store.get('SELECT name, stock FROM products WHERE id=?', pid);
+        if (p.stock < q) fail(`Not enough stock for "${p.name}" (available ${p.stock}, needed ${q})`);
+      }
+    }
+
+    const subtotal = r2(lines.reduce((s, l) => s + r2(l.qty * l.price), 0));
+    const discount = r2(num(input.discount, 'Discount', { min: 0, allowEmpty: true }));
+    if (discount > subtotal) fail('Discount cannot be more than the bill total');
+    const total = r2(subtotal - discount);
+    const paid = input.paid === undefined || input.paid === null || input.paid === ''
+      ? total : r2(num(input.paid, 'Amount received', { min: 0 }));
+    if (paid > total + 0.004) fail('Amount received cannot be more than the bill total');
+    const due = r2(total - paid);
+    if (due > 0 && !customer) fail('Please select a customer for an udhar (credit) sale');
+    const cost = r2(lines.reduce((s, l) => s + l.qty * l.cost, 0));
+    const profit = r2(total - cost);
+    return { saleDate, customer, lines, subtotal, discount, total, paid, due, profit, method: clean(input.method) || 'cash', note: clean(input.note) };
+  }
+
+  /** Writes items, stock moves and the udhar row of a bill. */
+  function writeSaleBody(saleId, invoice_no, P) {
+    for (const l of P.lines) {
+      store.run(
+        `INSERT INTO sale_items(sale_id,product_id,name,qty,price,cost,total) VALUES(?,?,?,?,?,?,?)`,
+        saleId, l.prod.id, l.prod.name, l.qty, l.price, l.cost, r2(l.qty * l.price)
+      );
+      store.run(
+        `INSERT INTO stock_moves(product_id,date,type,qty,cost_price,ref_id,note) VALUES(?,?,?,?,?,?,?)`,
+        l.prod.id, P.saleDate, 'sale', -l.qty, l.cost, saleId, invoice_no
+      );
+      store.run('UPDATE products SET stock = stock - ? WHERE id = ?', l.qty, l.prod.id);
+    }
+    if (P.due > 0) {
+      store.run(
+        `INSERT INTO ledger(customer_id,date,type,debit,sale_id,note) VALUES(?,?,?,?,?,?)`,
+        P.customer.id, P.saleDate, 'credit_sale', P.due, saleId, `Udhar on ${invoice_no}`
+      );
+    }
+  }
+
   S.createSale = (input) =>
     store.tx(() => {
       const settings = S.getSettings();
-      const items = Array.isArray(input.items) ? input.items : [];
-      if (!items.length) fail('The cart is empty');
-      const saleDate = date(input.date);
-
-      let customer = null;
-      if (input.customer_id) {
-        customer = store.get('SELECT * FROM customers WHERE id=? AND active=1', input.customer_id) || fail('Customer not found');
-      }
-
-      // validate lines + stock (same product may appear on several lines)
-      const lines = [];
-      const need = new Map();
-      for (const it of items) {
-        const prod = store.get('SELECT * FROM products WHERE id=? AND active=1', it.product_id) || fail('A product in the cart no longer exists');
-        const qty = num(it.qty, `Quantity of ${prod.name}`);
-        if (qty <= 0) fail(`Quantity of ${prod.name} must be greater than zero`);
-        const price = r2(num(it.price, `Price of ${prod.name}`, { min: 0 }));
-        lines.push({ prod, qty, price });
-        need.set(prod.id, (need.get(prod.id) || 0) + qty);
-      }
-      if (settings.allow_negative_stock !== '1') {
-        for (const [pid, q] of need) {
-          const p = store.get('SELECT name, stock FROM products WHERE id=?', pid);
-          if (p.stock < q) fail(`Not enough stock for "${p.name}" (available ${p.stock}, needed ${q})`);
-        }
-      }
-
-      const subtotal = r2(lines.reduce((s, l) => s + r2(l.qty * l.price), 0));
-      const discount = r2(num(input.discount, 'Discount', { min: 0, allowEmpty: true }));
-      if (discount > subtotal) fail('Discount cannot be more than the bill total');
-      const total = r2(subtotal - discount);
-      const paid = input.paid === undefined || input.paid === null || input.paid === ''
-        ? total : r2(num(input.paid, 'Amount received', { min: 0 }));
-      if (paid > total + 0.004) fail('Amount received cannot be more than the bill total');
-      const due = r2(total - paid);
-      if (due > 0 && !customer) fail('Please select a customer for an udhar (credit) sale');
-      const cost = r2(lines.reduce((s, l) => s + l.qty * l.prod.cost_price, 0));
-      const profit = r2(total - cost);
-
+      const P = prepareSale(input, settings);
       const n = Number(settings.next_invoice || 1);
       const invoice_no = `${settings.invoice_prefix || ''}${String(n).padStart(5, '0')}`;
       store.run(`UPDATE settings SET value=? WHERE key='next_invoice'`, String(n + 1));
-
       const sale = store.run(
         `INSERT INTO sales(invoice_no,date,customer_id,subtotal,discount,total,paid,due,profit,method,note)
          VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-        invoice_no, saleDate, customer ? customer.id : null, subtotal, discount, total, paid, due, profit,
-        clean(input.method) || 'cash', clean(input.note)
+        invoice_no, P.saleDate, P.customer ? P.customer.id : null, P.subtotal, P.discount, P.total, P.paid, P.due, P.profit,
+        P.method, P.note
       );
-      for (const l of lines) {
-        store.run(
-          `INSERT INTO sale_items(sale_id,product_id,name,qty,price,cost,total) VALUES(?,?,?,?,?,?,?)`,
-          sale.id, l.prod.id, l.prod.name, l.qty, l.price, l.prod.cost_price, r2(l.qty * l.price)
-        );
-        store.run(
-          `INSERT INTO stock_moves(product_id,date,type,qty,cost_price,ref_id,note) VALUES(?,?,?,?,?,?,?)`,
-          l.prod.id, saleDate, 'sale', -l.qty, l.prod.cost_price, sale.id, invoice_no
-        );
-        store.run('UPDATE products SET stock = stock - ? WHERE id = ?', l.qty, l.prod.id);
-      }
-      if (due > 0) {
-        store.run(
-          `INSERT INTO ledger(customer_id,date,type,debit,sale_id,note) VALUES(?,?,?,?,?,?)`,
-          customer.id, saleDate, 'credit_sale', due, sale.id, `Udhar on ${invoice_no}`
-        );
-      }
+      writeSaleBody(sale.id, invoice_no, P);
       return S.getSale(sale.id);
+    });
+
+  function logEdit(entity, entity_id, label, before, after) {
+    store.run('INSERT INTO edit_log(entity,entity_id,label,before,after) VALUES(?,?,?,?,?)',
+      entity, entity_id, label, JSON.stringify(before), JSON.stringify(after));
+  }
+
+  /**
+   * Correct a saved bill (wrong quantity / price / customer / amount received...).
+   * Old stock comes back, the new lines are checked and taken out again, and the udhar row is rebuilt.
+   * The invoice number stays the same.
+   */
+  S.updateSale = (id, input) =>
+    store.tx(() => {
+      const old = S.getSale(id) || fail('Sale not found');
+      if (old.status !== 'active') fail('A cancelled bill cannot be edited');
+      const settings = S.getSettings();
+      const oldCost = new Map();
+      for (const it of old.items) if (!oldCost.has(it.product_id)) oldCost.set(it.product_id, it.cost);
+      // give the old goods back first, so the stock check sees the true available stock
+      for (const it of old.items) store.run('UPDATE products SET stock = stock + ? WHERE id = ?', it.qty, it.product_id);
+      const P = prepareSale(input, settings, oldCost);
+      store.run('DELETE FROM sale_items WHERE sale_id=?', id);
+      store.run(`DELETE FROM stock_moves WHERE type='sale' AND ref_id=?`, id);
+      store.run(`DELETE FROM ledger WHERE type='credit_sale' AND sale_id=?`, id);
+      store.run(
+        `UPDATE sales SET date=?, customer_id=?, subtotal=?, discount=?, total=?, paid=?, due=?, profit=?, method=?, note=?,
+           edited_at=datetime('now','localtime') WHERE id=?`,
+        P.saleDate, P.customer ? P.customer.id : null, P.subtotal, P.discount, P.total, P.paid, P.due, P.profit, P.method, P.note, id
+      );
+      writeSaleBody(id, old.invoice_no, P);
+      const pick = (x) => ({ date: x.date, customer_id: x.customer_id, total: x.total, discount: x.discount, paid: x.paid, due: x.due,
+        items: x.items.map((i) => ({ product_id: i.product_id, name: i.name, qty: i.qty, price: i.price })) });
+      const now = S.getSale(id);
+      logEdit('sale', id, old.invoice_no, pick(old), pick(now));
+      return now;
     });
 
   S.getSale = (id) => {

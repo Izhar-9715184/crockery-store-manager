@@ -124,7 +124,8 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .update-dot { color: #ffd9b8; font-weight: 600; }
 .update-dot::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2); margin-right: 6px; animation: pulse 1.6s infinite; }
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background:
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--paper);
+  background:
   radial-gradient(900px 380px at 100% -80px, color-mix(in srgb, var(--teal) 9%, transparent), transparent 70%),
   radial-gradient(700px 320px at 0% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%); }
 .page { flex: 1; overflow: auto; padding: 26px 32px 44px; }
@@ -151,7 +152,7 @@ h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .btn.primary:hover { filter: brightness(1.07); background: linear-gradient(135deg, var(--accent-2), var(--accent)); }
 .btn.teal { background: linear-gradient(135deg, var(--teal-2), var(--teal)); border-color: var(--teal); color: #fff; box-shadow: 0 4px 12px rgba(27, 133, 129, .25); }
 .btn.teal:hover { filter: brightness(1.07); background: linear-gradient(135deg, var(--teal-2), var(--teal)); }
-.btn.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, var(--line)); }
+.btn.danger { color: var(--red); border-color: #e3bdb7; border-color: color-mix(in srgb, var(--red) 35%, var(--line)); }
 .btn.danger:hover { background: var(--red-soft); }
 .btn.sm { padding: 4px 10px; font-size: 12.5px; border-radius: 7px; }
 .btn.lg { padding: 12px 22px; font-size: 15px; border-radius: 11px; }
@@ -162,7 +163,7 @@ input[type=text], input[type=number], input[type=date], input[type=search], inpu
   width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); outline: none;
   transition: border-color .15s, box-shadow .15s;
 }
-input::placeholder, textarea::placeholder { color: color-mix(in srgb, var(--muted) 70%, transparent); }
+input::placeholder, textarea::placeholder { color: #98a5a9; color: color-mix(in srgb, var(--muted) 70%, transparent); }
 input:hover, select:hover, textarea:hover { border-color: var(--line-strong); }
 input:focus, select:focus, textarea:focus { border-color: var(--teal); box-shadow: 0 0 0 4px var(--ring); }
 textarea { resize: vertical; min-height: 60px; }
@@ -191,7 +192,7 @@ label.f > span { display: block; font-size: 12.5px; font-weight: 650; color: var
 .stat:nth-child(4) { animation-delay: .15s; } .stat:nth-child(5) { animation-delay: .2s; } .stat:nth-child(6) { animation-delay: .25s; }
 .stat-ico { width: 44px; height: 44px; border-radius: 13px; flex: none; display: grid; place-items: center; background: var(--teal-soft); color: var(--teal); }
 .stat-ico svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-.stat-ico.orange { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); }
+.stat-ico.orange { background: #fbe9db; background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); }
 .stat-ico.red { background: var(--red-soft); color: var(--red); }
 .stat-ico.blue { background: var(--blue-soft); color: var(--blue); }
 .stat-ico.amber { background: var(--amber-soft); color: var(--amber); }
@@ -393,3 +394,10 @@ tr.cancelled td { color: var(--muted); }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(232, 146, 77, .6); } 50% { box-shadow: 0 0 0 6px rgba(232, 146, 77, 0); } }
 @keyframes spin-in { from { transform: rotate(-180deg) scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* small "Edit" links at the end of entries */
+.edit-link { background: none; border: 0; padding: 2px 4px; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.edit-link:hover { color: var(--teal); }
+.edited-tag { font-size: 11px; color: var(--amber); margin-left: 6px; }
+.edit-banner { background: var(--amber-soft); color: var(--amber); border-radius: 10px; padding: 9px 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 12px; font-weight: 600; }
+.edit-banner .grow { flex: 1; }

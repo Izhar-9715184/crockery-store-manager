@@ -91,17 +91,42 @@ function adjustDialog(p, done) {
   });
 }
 
-async function historyDialog(p) {
+async function historyDialog(p, done) {
   const rows = await rpc('stockHistory', p.id);
   const label = { opening: 'Opening stock', purchase: 'Stock in', sale: 'Sold', sale_cancel: 'Sale cancelled', breakage: 'Broken / lost', correction: 'Count correction' };
-  modal({
+  const hm = modal({
     title: `Stock history — ${p.name}`, wide: true,
-    body: `<table><thead><tr><th>Date</th><th>What</th><th class="r">Qty</th><th>Details</th></tr></thead><tbody>
+    body: `<table><thead><tr><th>Date</th><th>What</th><th class="r">Qty</th><th>Details</th><th></th></tr></thead><tbody>
       ${rows.map((r) => `<tr><td class="nowrap">${esc(fmtDate(r.date))}</td><td>${esc(label[r.type] || r.type)}</td>
         <td class="r num ${r.qty < 0 ? 'red' : 'teal'}">${r.qty > 0 ? '+' : ''}${qty(r.qty)}</td>
-        <td class="muted">${esc([r.supplier, r.note].filter(Boolean).join(' · '))}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No movements yet.</td></tr>'}
+        <td class="muted">${esc([r.supplier, r.note].filter(Boolean).join(' · '))}${r.edited_at ? '<span class="edited-tag">edited</span>' : ''}</td>
+        <td class="r nowrap">${r.type === 'purchase' || r.type === 'opening' ? `<button class="edit-link" data-edit="${r.id}">Edit</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">No movements yet.</td></tr>'}
       </tbody></table>`,
     actions: [{ label: 'Close' }],
+  });
+  hm.body.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-edit]');
+    if (!b) return;
+    const r = rows.find((x) => x.id === Number(b.dataset.edit));
+    editStockInDialog(p, r, () => { hm.close(); historyDialog(p); if (done) done(); });
+  });
+}
+
+/** Fix a wrongly typed "maal aaya" record. */
+function editStockInDialog(p, r, done) {
+  modal({
+    title: `Edit stock in — ${p.name}`,
+    body: `<div class="form-grid">
+      <div class="full muted small">Change the quantity or cost that was typed wrongly. Stock is corrected automatically.</div>
+      <label class="f"><span>Quantity *</span><input type="number" name="qty" step="any" min="0" value="${r.qty}"></label>
+      <label class="f"><span>Cost price (each)</span><input type="number" name="cost_price" step="any" min="0" value="${r.cost_price || ''}"></label>
+      <label class="f"><span>Date</span><input type="date" name="date" value="${esc(r.date)}"></label>
+      <label class="f"><span>Supplier</span><input type="text" name="supplier" value="${esc(r.supplier || '')}"></label>
+      <label class="f full"><span>Note</span><input type="text" name="note" value="${esc(r.note || '')}"></label></div>`,
+    actions: [{ label: 'Cancel' }, {
+      label: 'Save changes', kind: 'primary', close: false,
+      onClick: async (m) => { await rpc('updateStockIn', { ...formData(m.body), id: r.id }); m.close(); toast('Stock entry updated', 'ok'); if (done) done(); },
+    }],
   });
 }
 
@@ -251,7 +276,7 @@ App.pages.products = {
       const b = e.target.closest('[data-a]');
       if (!b) return;
       const p = rows.find((x) => x.id === Number(b.closest('tr').dataset.id));
-      ({ in: () => stockInDialog(p, load), adj: () => adjustDialog(p, load), hist: () => historyDialog(p), edit: () => editProduct(p, load) })[b.dataset.a]();
+      ({ in: () => stockInDialog(p, load), adj: () => adjustDialog(p, load), hist: () => historyDialog(p, load), edit: () => editProduct(p, load) })[b.dataset.a]();
     });
     await load();
   },

@@ -18,6 +18,7 @@ App.pages.sale = {
         </section>
         <section class="sale-right">
           <div class="card">
+            <div id="editBanner"></div>
             <div class="sale-top">
               <div class="row"><label class="f"><span>Date</span><input type="date" id="date"></label>
                 <label class="f"><span>Customer</span>
@@ -56,7 +57,7 @@ App.pages.sale = {
       el('customer').innerHTML = `<option value="">Walk-in customer</option>` + customers.map((c) =>
         `<option value="${c.id}" ${String(c.id) === String(cart.customer_id) ? 'selected' : ''}>${esc(c.name)}${c.phone ? ' · ' + esc(c.phone) : ''}${c.balance > 0 ? '  (udhar ' + qty(c.balance) + ')' : ''}</option>`).join('');
       const c = customers.find((x) => String(x.id) === String(cart.customer_id));
-      el('custInfo').textContent = c && c.balance > 0 ? `Previous udhar: ${money(c.balance)}` : '';
+      el('custInfo').textContent = !cart.editing && c && c.balance > 0 ? `Previous udhar: ${money(c.balance)}` : '';
     }
 
     // ----- product list
@@ -151,9 +152,17 @@ App.pages.sale = {
       App.go('sale');
     });
 
+    if (cart.editing) {
+      el('editBanner').innerHTML = `<div class="edit-banner"><span class="grow">Editing bill ${esc(cart.editing.invoice_no)} — change what is wrong, then press Save changes.</span><button class="btn sm" id="cancelEdit">Cancel edit</button></div>`;
+      el('save').textContent = 'Save changes';
+      el('savePrint').textContent = 'Save changes & Print';
+      el('clear').style.display = 'none';
+      el('cancelEdit').addEventListener('click', () => { App.cart = null; App.go('sales'); });
+    }
+
     async function save(print) {
       await safe(async () => {
-        const sale = await rpc('createSale', {
+        const payload = {
           date: cart.date,
           customer_id: cart.customer_id ? Number(cart.customer_id) : null,
           items: cart.items.map((i) => ({ product_id: i.product_id, qty: Number(i.qty), price: Number(i.price) })),
@@ -161,11 +170,13 @@ App.pages.sale = {
           paid: cart.paid === null || cart.paid === '' ? undefined : Number(cart.paid),
           method: cart.method,
           note: cart.note,
-        });
-        toast(`Saved ${sale.invoice_no} · ${money(sale.total)}${sale.due > 0 ? ' · udhar ' + money(sale.due) : ''}`, 'ok');
+        };
+        const sale = cart.editing ? await rpc('updateSale', cart.editing.id, payload) : await rpc('createSale', payload);
+        const wasEdit = !!cart.editing;
+        toast(`${wasEdit ? 'Updated' : 'Saved'} ${sale.invoice_no} · ${money(sale.total)}${sale.due > 0 ? ' · udhar ' + money(sale.due) : ''}`, 'ok');
         if (print) printSale(sale);
         App.cart = null;
-        App.go('sale');
+        App.go(wasEdit ? 'sales' : 'sale');
       });
     }
     el('save').addEventListener('click', () => save(false));

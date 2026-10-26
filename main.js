@@ -13,6 +13,7 @@ if (SMOKE) {
   // the build server has no screen/graphics card: without this the GPU process crashes and the test fails for no real reason
   app.disableHardwareAcceleration();
   app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('in-process-gpu');   // no separate graphics process (it crashes on build servers)
 }
 
 let win = null;
@@ -361,6 +362,7 @@ async function runSmokeTest() {
     const page = await call('GET', '/');
     if (page.status !== 200) return fail('mobile page not served');
     await mobile.stop();
+    console.log('SMOKE BACKEND OK');   // database, sales, backups and the phone server all work
   } catch (e) {
     return fail(e.message);
   }

@@ -305,13 +305,27 @@ async function showInvoice(saleId, { onChange } = {}) {
     $('.preview', m.body).className = 'preview ' + paper;
   };
   const m = modal({
-    title: `Print Bill ${sale.invoice_no}`,
+    title: `Print Bill ${sale.invoice_no}${sale.edited_at ? ' (edited)' : ''}`,
     wide: true,
     body: `<div class="paper-pick">${Object.keys(PAPERS).map((k) => `<button data-p="${k}">${esc(PAPERS[k].label)}</button>`).join('')}</div>
       <div class="preview-wrap"><div class="preview"></div></div>
       <p class="muted small" style="margin:10px 0 0">In the print window choose your printer. If the bill looks cut off, set Margins to “Default” and untick “Headers and footers”.</p>`,
     actions: [
       ...(sale.status === 'active' ? [{
+        label: 'Edit bill', close: false,
+        onClick: async () => {
+          const prods = await rpc('listProducts', { limit: 5000 });
+          App.cart = {
+            items: sale.items.map((i) => { const p = prods.find((x) => x.id === i.product_id) || {}; return { product_id: i.product_id, name: i.name, qty: i.qty, price: i.price, stock: (p.stock || 0) + i.qty, unit: p.unit || '' }; }),
+            customer_id: sale.customer_id ? String(sale.customer_id) : '', discount: sale.discount ? String(sale.discount) : '',
+            paid: String(sale.paid), method: sale.method || 'cash', note: sale.note || '', date: sale.date,
+            editing: { id: sale.id, invoice_no: sale.invoice_no },
+          };
+          while (modalStack.length) modalStack[modalStack.length - 1].close();
+          if (onChange) onChange();
+          App.go('sale');
+        },
+      }, {
         label: 'Cancel this sale', kind: 'danger', close: false,
         onClick: async () => {
           const reason = await askText({ title: 'Cancel sale', label: 'Why is this sale being cancelled?', okLabel: 'Cancel sale' });

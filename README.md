@@ -234,3 +234,10 @@ Is software ka database aur screens poori tarah test hue hain (13 database tests
 - Auto-update ka asal test: pehle `v1.0.0` install karein, phir `v1.0.1` release karein aur dekhein ke software update ho jata hai.
 
 Naye features (kharcha/expenses, supplier ka hisab, Urdu interface, barcode scanner, user login) baad mein isi tareeqe se update ke zariye client tak jaa sakte hain.
+
+
+## Galti theek karna (Edit)
+- **Udhar ledger**: har entry ke aakhir mein chhota "Edit" (payment, old balance, correction). Bill wali entry par "Edit bill".
+- **Sale bill**: Sales History -> bill kholo -> "Edit bill". New Sale screen khulti hai, theek karke "Save changes". Invoice number wohi rehta hai; stock aur udhar khud sahi ho jate hain.
+- **Purchase (maal aaya)**: Products -> History -> stock-in ke saamne "Edit" (quantity / cost / date).
+- Har edit par "edited" likha aata hai aur purani value `edit_log` table mein mehfooz rehti hai.

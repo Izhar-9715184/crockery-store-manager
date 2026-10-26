@@ -140,7 +140,22 @@ const MIGRATIONS = [
     imported_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
   );
   `,
-  // ---- v3, v4 ... add future changes here (never edit the ones above) ------
+  // ---- v3: entries can now be edited; remember when, and keep a before/after log -------
+  `
+  ALTER TABLE ledger ADD COLUMN edited_at TEXT;
+  ALTER TABLE sales ADD COLUMN edited_at TEXT;
+  ALTER TABLE stock_moves ADD COLUMN edited_at TEXT;
+  CREATE TABLE edit_log (
+    id        INTEGER PRIMARY KEY,
+    entity    TEXT NOT NULL,      -- ledger | sale | stock_in
+    entity_id INTEGER NOT NULL,
+    label     TEXT,
+    before    TEXT NOT NULL,
+    after     TEXT NOT NULL,
+    at        TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  );
+  `,
+  // ---- v4, v5 ... add future changes here (never edit the ones above) ------
 ];
 
 
