@@ -23,6 +23,8 @@ let autoUpdater = null;
 let mobile = null;
 let cloud = null;
 let folderBk = null;
+let stockSync = null;
+let syncExit = false;
 let quitting = false;
 let updateState = { status: 'idle', version: null, percent: 0, message: '' };
 
@@ -83,6 +85,10 @@ function start() {
     const { FolderBackup } = require('./src/core/folderbackup');
     folderBk = new FolderBackup({ store, dir: path.join(app.getPath('userData'), 'cloud'), log });
   } catch (e) { log(`folder backup unavailable: ${e.message}`); }
+  try {
+    const { StockSync } = require('./src/cloud/stocksync');
+    stockSync = new StockSync({ service, store, dir: path.join(app.getPath('userData'), 'cloud'), log });
+  } catch (e) { log(`stock sync unavailable: ${e.message}`); }
   registerIpc();
   createWindow();
   applyMobileConfig().catch((e) => log(`mobile access: ${e.message}`));
@@ -92,6 +98,7 @@ function start() {
   setupUpdater();
   if (cloud) cloud.start();
   if (folderBk) folderBk.start();
+  if (stockSync) stockSync.start();
   // keep today's automatic backup fresh while the shop is working
   setInterval(() => { try { store.autoBackup(true); } catch (e) { log(`backup: ${e.message}`); } }, 15 * 60 * 1000);
 }
@@ -260,6 +267,13 @@ function registerIpc() {
   });
   ipcMain.handle('sys:folderStop', () => needFolder().stop());
 
+  // ---- stock list online for the phone (locked copy in a secret GitHub Gist)
+  const needSync = () => { if (!stockSync) throw new Error('Online stock is not available.'); return stockSync; };
+  ipcMain.handle('sys:stockSyncStatus', () => (stockSync ? stockSync.status() : { state: 'off' }));
+  ipcMain.handle('sys:stockSyncConnect', (_e, token) => needSync().connect(token));
+  ipcMain.handle('sys:stockSyncNow', () => needSync().push({ force: true }));
+  ipcMain.handle('sys:stockSyncStop', () => needSync().stop());
+
   ipcMain.handle('sys:openBackups', () => shell.openPath(store.backupsDir));
 
   // ---- mobile access (phone app)
@@ -386,6 +400,13 @@ async function runSmokeTest() {
 }
 
 app.on('before-quit', (e) => {
+  // last stock copy for the phone (max. ~6 seconds, skipped when nothing changed or offline)
+  if (!syncExit && !SMOKE && stockSync && stockSync.dirty()) {
+    syncExit = true;
+    e.preventDefault();
+    stockSync.pushOnExit().catch(() => {}).then(() => app.quit());
+    return;
+  }
   // last copy to Google Drive (max. a few seconds, skipped when offline or nothing changed)
   if (!quitting && !SMOKE && cloud) {
     quitting = true;

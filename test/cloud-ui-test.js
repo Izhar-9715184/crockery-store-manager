@@ -32,7 +32,7 @@ fs.mkdirSync(shots, { recursive: true });
     window.api = { call: async (n, ...a) => { const r = await window.__rpc(n, a); if (!r.ok) throw new Error(r.error); return r.data; } };
     window.sys = { info: () => window.__sysInfo(), checkUpdate: async () => ({ status: 'dev' }), installUpdate: async () => true, backupTo: async () => null, restore: async () => null, openBackups: async () => true, onUpdateStatus: () => {},
       mobileStatus: async () => ({ config: { enabled: false, port: 8765, hasPin: false }, running: false }), mobileApply: async () => ({}),
-      folderStatus: async () => fst(),
+      stockSyncStatus: async () => ({ state: 'off' }), folderStatus: async () => fst(),
       folderChoose: async () => { cloud.calls.push('f-choose'); folder.state = folder.found ? 'choice' : 'ok'; return fst(); },
       folderBackupNow: async () => { cloud.calls.push('f-now'); return fst(); },
       folderList: async () => [{ name: 'crockery-latest.db', at: '2026-10-22T09:00:00', size: 90000 }, { name: 'crockery-2026-10-21.db', at: '2026-10-21T20:00:00', size: 88000 }],

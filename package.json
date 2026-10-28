@@ -10,7 +10,7 @@
   "repository": "github:Izhar-9715184/crockery-store-manager",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/core.test.js test/server.test.js test/purchase.test.js test/cloud.test.js test/folderbackup.test.js test/edit.test.js",
+    "test": "node --test test/core.test.js test/server.test.js test/purchase.test.js test/cloud.test.js test/folderbackup.test.js test/edit.test.js test/stocksync.test.js",
     "smoke": "electron . --smoke-test",
     "dist": "electron-builder --win --x64 --publish never",
     "release": "electron-builder --win --x64 --publish always"
@@ -26,7 +26,7 @@
     "appId": "com.crockerystore.manager",
     "productName": "Crockery Store Manager",
     "directories": { "output": "dist" },
-    "files": ["main.js", "preload.js", "src/**/*", "docs/packing.js", "build/icon.png", "package.json"],
+    "files": ["main.js", "preload.js", "src/**/*", "docs/packing.js", "docs/stockcrypto.js", "build/icon.png", "package.json"],
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }],
       "icon": "build/icon.png"

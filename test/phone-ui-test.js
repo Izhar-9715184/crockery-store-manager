@@ -126,9 +126,47 @@ function pagesServer() {
   assert.match(await phone.textContent('#toast'), /2 products loaded/);
   await phone.fill('#name', 'Dinner Plate');
   assert.match(await phone.textContent('#hint'), /cost 100/);
+  assert.match(await phone.textContent('#hint'), /stock 5/);
+  // "My stock" screen: search + tap a product to fill the name
+  await phone.click('#stockBtn');
+  await phone.waitForSelector('#k_list .item-row');
+  assert.equal(await phone.locator('#k_list .item-row').count(), 2);
+  await phone.fill('#k_q', 'glass');
+  assert.equal(await phone.locator('#k_list .item-row').count(), 1);
+  await phone.screenshot({ path: path.join(shots, 'p4-mystock.png') });
+  await phone.click('#k_list .item-row');
+  assert.equal(await phone.inputValue('#name'), 'Glass Set 6pc');
+  assert.match(await phone.textContent('#hint'), /stock 2/);
   await phone.fill('#name', '');
   await phone.fill('#name', 'Dinn');
   assert.ok((await phone.locator('#plist option').count()) >= 2);
+
+  // online stock: open the link from the laptop on a fresh phone -> stock arrives by itself (fake GitHub)
+  {
+    const StockCrypto = require('../docs/stockcrypto.js');
+    const gid = 'b'.repeat(32), pass = 'k7m2p9x4qa';
+    let content = await StockCrypto.encrypt({ v: 1, at: '2026-10-28', ts: '2026-10-28T09:15:00', items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 33, u: 'pcs' }] }, pass);
+    const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
+    await ctx2.route('https://api.github.com/gists/*', (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify({ files: { 'stock.json': { content } } }) }));
+    const p2 = await ctx2.newPage();
+    p2.on('pageerror', (e) => errors.push('online pageerror: ' + e.message));
+    await p2.goto(base + '#sync=' + gid + '.' + pass);
+    await p2.waitForFunction(() => window.__maalReady === true);
+    await p2.waitForFunction(() => /Tea Cup/.test(document.querySelector('#plist').innerHTML), null, { timeout: 8000 });
+    await p2.fill('#name', 'Tea Cup');
+    assert.match(await p2.textContent('#hint'), /stock 33 pcs/);
+    assert.ok(!(await p2.evaluate(() => location.hash)), 'secret removed from the address bar');
+    await p2.click('#menuBtn'); await p2.click('#m_stock');
+    assert.match(await p2.textContent('#k_age'), /28 Oct 2026, 09:15/);
+    await p2.screenshot({ path: path.join(shots, 'p5-online.png') });
+    // laptop sold some -> next refresh shows the new number
+    content = await StockCrypto.encrypt({ v: 1, ts: '2026-10-28T11:00:00', items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 30, u: 'pcs' }] }, pass);
+    await p2.reload(); await p2.waitForFunction(() => window.__maalReady === true);
+    await p2.waitForFunction(() => { const d = JSON.parse(localStorage.getItem('crockery.maal.v1')); return d.products && d.products.items[0].q === 30; }, null, { timeout: 8000 });
+    // wrong key -> friendly message, old copy kept
+    await p2.close(); await ctx2.close();
+  }
 
   // ================= LAPTOP =================
   const lap = await browser.newPage({ viewport: { width: 1366, height: 820 } });
@@ -142,7 +180,7 @@ function pagesServer() {
     window.api = { call: async (n, ...a) => { const r = await window.__rpc(n, a); if (!r.ok) throw new Error(r.error); return r.data; } };
     window.sys = { info: () => window.__sysInfo(), checkUpdate: async () => ({ status: 'dev' }), installUpdate: async () => true,
       backupTo: async () => null, restore: async () => null, openBackups: async () => true, onUpdateStatus: () => {},
-      mobileStatus: async () => ({ config: { enabled: false, port: 8765, hasPin: false }, running: false }), mobileApply: async () => ({}), folderStatus: async () => ({ state: 'off', folder: '' }), cloudStatus: async () => ({ configured: false, state: 'unconfigured', connected: false }) };
+      mobileStatus: async () => ({ config: { enabled: false, port: 8765, hasPin: false }, running: false }), mobileApply: async () => ({}), stockSyncStatus: async () => ({ state: 'off' }), folderStatus: async () => ({ state: 'off', folder: '' }), cloudStatus: async () => ({ configured: false, state: 'unconfigured', connected: false }) };
   });
   await lap.goto('file://' + path.resolve(__dirname, '../src/renderer/index.html'));
   await lap.waitForFunction(() => window.__appReady === true);

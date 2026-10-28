@@ -750,9 +750,10 @@ function createService(store) {
 
   /** Product names for the phone page's suggestion list. Returns one line of text. */
   S.exportProductsForPhone = () => {
-    const items = store.all('SELECT name, code, cost_price, sale_price FROM products WHERE active = 1 ORDER BY name COLLATE NOCASE')
-      .map((p) => ({ n: p.name, k: p.code || '', c: p.cost_price, s: p.sale_price }));
-    return { count: items.length, text: Packing.pack(PREFIX_PRODUCTS, { v: 1, items }) };
+    const items = store.all('SELECT name, code, cost_price, sale_price, stock, unit FROM products WHERE active = 1 ORDER BY name COLLATE NOCASE')
+      .map((p) => ({ n: p.name, k: p.code || '', c: p.cost_price, s: p.sale_price, q: p.stock, u: p.unit || '' }));
+    // "at" = the day this stock count was taken, so the phone can say how old the numbers are
+    return { count: items.length, text: Packing.pack(PREFIX_PRODUCTS, { v: 1, at: dateStr(), items }) };
   };
 
   S.dbInfo = () => ({

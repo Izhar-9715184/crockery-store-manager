@@ -24,9 +24,9 @@
   function load() {
     try {
       const o = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null };
+      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null };
     } catch (e) { /* first run or storage blocked */ }
-    return { batches: [], currentId: null, suppliers: [], products: null };
+    return { batches: [], currentId: null, suppliers: [], products: null, sync: null };
   }
   let data = load();
   function save() {
@@ -90,6 +90,54 @@
     return n ? ((data.products && data.products.items) || []).find((p) => norm(p.n) === n || (p.k && norm(p.k) === n)) : null;
   }
 
+  const stockText = (p) => (p.q === undefined ? 'stock unknown' : p.q <= 0 ? 'stock 0 (out)' : `stock ${fmt(p.q)}${p.u ? ' ' + p.u : ''}`);
+  const stockAge = () => {
+    const pr = data.products;
+    if (!pr) return '';
+    if (pr.ts) { const d = new Date(pr.ts); return `Stock as of ${nice(ymd(d))}, ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+    return pr.at ? `Stock as of ${nice(pr.at)}` : `Loaded ${nice(ymd(new Date(pr.loadedAt)))}`;
+  };
+
+  // ---- online stock: the laptop keeps a locked copy in a secret GitHub Gist; the phone reads it
+  const GIST_API = 'https://api.github.com/gists/';
+  let syncMsg = '';
+  function readSyncLink() {
+    const m = /[#&]sync=([0-9a-f]{20,40})\.([a-z0-9]{6,32})/i.exec(location.hash || '');
+    if (!m) return false;
+    data.sync = { id: m[1], pass: m[2] };
+    save();
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
+    return true;
+  }
+  async function fetchOnline(showErr) {
+    if (!data.sync) return false;
+    if (!navigator.onLine) { syncMsg = 'Offline — showing the last copy saved on this phone'; return false; }
+    try {
+      const r = await fetch(GIST_API + data.sync.id, { cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } });
+      if (!r.ok) throw new Error(r.status === 404 ? 'The online copy was not found. Ask for a new link from the laptop.' : r.status === 403 ? 'Too many tries. Wait a little and try again.' : 'Could not reach the online copy');
+      const g = await r.json();
+      const f = g.files && (g.files['stock.json'] || Object.values(g.files)[0]);
+      if (!f) throw new Error('The online copy is empty');
+      let text = f.content;
+      if (f.truncated && f.raw_url) text = await (await fetch(f.raw_url, { cache: 'no-store' })).text();
+      const obj = await self.StockCrypto.decrypt(text, data.sync.pass);
+      if (!obj || !Array.isArray(obj.items)) throw new Error('The online copy is not a stock list');
+      const items = obj.items.slice(0, 5000).map((x) => {
+        const o = { n: String(x.n).slice(0, 200), k: String(x.k || '').slice(0, 60), c: Number(x.c) || 0, s: Number(x.s) || 0 };
+        if (x.q !== undefined && Number.isFinite(Number(x.q))) { o.q = Number(x.q); o.u = String(x.u || '').slice(0, 20); }
+        return o;
+      });
+      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null };
+      save(); renderFields(); updateHint();
+      syncMsg = `Updated online · ${items.length} products`;
+      return true;
+    } catch (e) {
+      syncMsg = e.message || 'Could not update';
+      if (showErr) toast(syncMsg, true);
+      return false;
+    }
+  }
+
   function renderFields() {
     const b = ensureCurrent();
     $('#supplier').value = b.supplier || '';
@@ -122,7 +170,7 @@
     const h = $('#hint');
     if (!p) { h.hidden = true; return; }
     h.hidden = false;
-    h.textContent = `In your shop: cost ${fmt(p.c)} · sale price ${fmt(p.s)}`;
+    h.textContent = `In your shop: ${stockText(p)} · cost ${fmt(p.c)} · sale price ${fmt(p.s)}`;
     if ($('#cost').value === '' && p.c) { $('#cost').value = String(p.c); updateAmt(); }
   }
 
@@ -249,10 +297,14 @@
   function openMenu() {
     const s = sheet('Menu', `
       <button class="menu-item" id="m_hist">📋 Old lists (History)</button>
-      <button class="menu-item" id="m_prod">📦 Product list from the laptop</button>
+      <button class="menu-item" id="m_stock">🧮 My stock (what I have in the shop)</button>
+      <button class="menu-item" id="m_online">🌐 Online stock (automatic)</button>
+      <button class="menu-item" id="m_prod">📦 Product list by message (without internet)</button>
       <button class="menu-item" id="m_help">ℹ️ How it works / install</button>`);
     $('#m_hist', s.el).addEventListener('click', () => { s.close(); openHistory(); });
     $('#m_prod', s.el).addEventListener('click', () => { s.close(); openProducts(); });
+    $('#m_stock', s.el).addEventListener('click', () => { s.close(); openStock(); });
+    $('#m_online', s.el).addEventListener('click', () => { s.close(); openOnline(); });
     $('#m_help', s.el).addEventListener('click', () => { s.close(); openHelp(); });
   }
 
@@ -294,12 +346,65 @@
     });
   }
 
+  function openOnline() {
+    const linked = !!data.sync;
+    const s = sheet('Online stock', `
+      <p class="muted small" style="margin-top:0">The laptop keeps a locked copy of your stock online. This phone reads it by itself whenever it has internet, so you always see the stock the shop had when the laptop was last used.</p>
+      <div class="item-row">${linked ? `<b>Connected</b><div class="muted small">${esc(stockAge() || 'Not downloaded yet')}</div><div class="muted small">${esc(syncMsg)}</div>` : '<b>Not connected</b><div class="muted small">At the laptop: Settings → Stock online for the phone → Copy link. Send the link to this phone and open it here.</div>'}</div>
+      ${linked ? '<button class="btn primary block" id="o_now">Update now</button><button class="btn danger block" id="o_off">Disconnect this phone</button>'
+        : '<label class="f"><span>Or paste the link here</span><input id="o_link" type="text" placeholder="https://…#sync=…" autocomplete="off"></label><button class="btn primary block" id="o_go">Connect</button>'}`);
+    const now = $('#o_now', s.el);
+    if (now) now.addEventListener('click', async () => { now.disabled = true; const ok = await fetchOnline(true); s.close(); if (ok) toast('Stock updated'); });
+    const off = $('#o_off', s.el);
+    if (off) off.addEventListener('click', () => { data.sync = null; save(); s.close(); toast('Disconnected'); });
+    const go = $('#o_go', s.el);
+    if (go) go.addEventListener('click', async () => {
+      const m = /sync=([0-9a-f]{20,40})\.([a-z0-9]{6,32})/i.exec($('#o_link', s.el).value);
+      if (!m) return toast('This is not a valid link', true);
+      data.sync = { id: m[1], pass: m[2] }; save();
+      go.disabled = true;
+      const ok = await fetchOnline(true); s.close(); if (ok) toast('Connected. Stock loaded.');
+    });
+  }
+
+  function openStock() {
+    const items = (data.products && data.products.items) || [];
+    if (!items.length) {
+      const s0 = sheet('My stock', '<div class="empty">No stock list on this phone yet.<br>At the laptop: <b>Products &amp; Stock → Product list for phone</b>, send it here, then Menu → Update stock.</div><button class="btn primary block" id="k_load">Load it now</button>');
+      $('#k_load', s0.el).addEventListener('click', () => { s0.close(); openProducts(); });
+      return;
+    }
+    const s = sheet('My stock', `
+      <div class="muted small" style="margin-bottom:8px" id="k_age">${esc(stockAge())}${data.sync ? '' : '. Changes after that are not counted — update it before you travel.'}</div>
+      <input id="k_q" type="search" placeholder="Search product…" autocomplete="off" style="width:100%;margin-bottom:8px">
+      <div class="seg2"><button class="chip on" data-f="all">All</button> <button class="chip" data-f="low">Low (5 or less)</button> <button class="chip" data-f="out">Out of stock</button></div>
+      <div id="k_list"></div>`);
+    let f = 'all';
+    const draw = () => {
+      const q = norm($('#k_q', s.el).value);
+      const rows = items.filter((p) => (!q || norm(p.n).includes(q) || norm(p.k).includes(q))
+        && (f === 'all' || (f === 'out' && p.q <= 0) || (f === 'low' && p.q > 0 && p.q <= 5)));
+      $('#k_list', s.el).innerHTML = rows.slice(0, 300).map((p) => `<div class="item-row" data-n="${esc(p.n)}" style="display:flex;justify-content:space-between;gap:10px">
+        <div><b>${esc(p.n)}</b><div class="muted small">cost ${fmt(p.c)} · sale ${fmt(p.s)}</div></div>
+        <div style="text-align:right;font-weight:700;color:${p.q <= 0 ? '#b3261e' : p.q <= 5 ? '#a15c00' : '#14504e'}">${p.q === undefined ? '–' : fmt(p.q)}<div class="muted small" style="font-weight:400">${esc(p.u || '')}</div></div></div>`).join('')
+        || '<div class="empty">Nothing found.</div>';
+    };
+    $('#k_q', s.el).addEventListener('input', draw);
+    s.el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-f]');
+      if (b) { f = b.dataset.f; s.el.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('on', x === b)); draw(); return; }
+      const r = e.target.closest('[data-n]');
+      if (r) { $('#name').value = r.dataset.n; updateHint(); s.close(); $('#qty').focus(); }
+    });
+    draw();
+  }
+
   function openProducts() {
     const p = data.products;
     const s = sheet('Product list', `
-      <p class="muted small" style="margin-top:0">Optional. It lets the phone suggest your shop's product names while you type, so names match at the laptop.
+      <p class="muted small" style="margin-top:0">It lets the phone suggest your shop's product names and show <b>how much stock you already have</b> while you type.
       At the laptop: <b>Products &amp; Stock → Product list for phone</b>, then send yourself the message and paste it here.</p>
-      <div class="item-row">${p ? `<b>${p.count} products loaded</b><div class="muted small">${esc(nice(ymd(new Date(p.loadedAt))))}</div>` : 'No list loaded yet.'}</div>
+      <div class="item-row">${p ? `<b>${p.count} products loaded</b><div class="muted small">${esc(stockAge())}</div>` : 'No list loaded yet.'}</div>
       <label class="f"><span>Paste the message here</span><textarea id="p_text" placeholder="CROCKERY-PRODUCTS:..."></textarea></label>
       <label class="f"><span>…or choose the saved file</span><input id="p_file" type="file" accept=".txt,.json,text/plain"></label>
       <button class="btn primary block" id="p_load">Load list</button>
@@ -313,8 +418,13 @@
         const obj = self.Packing.unpack($('#p_text', s.el).value, 'CROCKERY-PRODUCTS');
         if (!obj || !Array.isArray(obj.items)) throw new Error('This is not a product list');
         const items = obj.items.filter((x) => x && typeof x.n === 'string').slice(0, 5000)
-          .map((x) => ({ n: String(x.n).slice(0, 200), k: String(x.k || '').slice(0, 60), c: Number(x.c) || 0, s: Number(x.s) || 0 }));
-        data.products = { items, loadedAt: Date.now(), count: items.length };
+          .map((x) => {
+            const o = { n: String(x.n).slice(0, 200), k: String(x.k || '').slice(0, 60), c: Number(x.c) || 0, s: Number(x.s) || 0 };
+            if (x.q !== undefined && Number.isFinite(Number(x.q))) { o.q = Number(x.q); o.u = String(x.u || '').slice(0, 20); }
+            return o;
+          });
+        const at = /^\d{4}-\d{2}-\d{2}$/.test(String(obj.at || '')) ? obj.at : null;
+        data.products = { items, loadedAt: Date.now(), count: items.length, at };
         save(); renderFields(); s.close(); toast(`${items.length} products loaded`);
       } catch (e) { toast(e.message, true); }
     });
@@ -374,6 +484,7 @@
     });
     $('#sendBtn').addEventListener('click', () => openSend(ensureCurrent()));
     $('#menuBtn').addEventListener('click', openMenu);
+    $('#stockBtn').addEventListener('click', openStock);
     window.addEventListener('online', setStatus);
     window.addEventListener('offline', setStatus);
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
@@ -384,6 +495,9 @@
         .then(() => { offlineReady = true; setStatus(); })
         .catch(() => { /* works online only */ });
     }
+    const linked = readSyncLink();
+    if (data.sync) fetchOnline(linked).then((ok) => { if (linked && ok) toast('Connected. Stock loaded.'); });
+    window.addEventListener('online', () => { if (data.sync) fetchOnline(false); });
     window.__maalReady = true;
   }
   init();

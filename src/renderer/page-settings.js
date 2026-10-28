@@ -59,6 +59,7 @@ App.pages.settings = {
           ${backups.map((b) => `<tr><td>${esc(b.name)}</td><td>${esc(fmtStamp(b.modified))}</td><td class="r">${fmtBytes(b.size)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">No backups yet.</td></tr>'}
         </tbody></table></div></div></div>
 
+      <div class="card section-gap"><h2>Stock online for the phone (Maal Entry)</h2><div class="pad" id="syncCard"><div class="muted">Loading…</div></div></div>
       <div class="card section-gap"><h2>Automatic copy to a folder (USB, Google Drive, OneDrive…)</h2><div class="pad" id="folderCard"><div class="muted">Loading…</div></div></div>
 
       <div class="card section-gap" id="cloudWrap"><h2>Google backup (your data safe in your own Google Drive)</h2><div class="pad" id="cloudCard"><div class="muted">Loading…</div></div></div>
@@ -83,6 +84,33 @@ App.pages.settings = {
     el('bkTo').addEventListener('click', () => safe(async () => { const p = await window.sys.backupTo(); if (p) toast('Copy saved to ' + p, 'ok'); }));
     el('bkOpen').addEventListener('click', () => window.sys.openBackups());
     el('bkRestore').addEventListener('click', () => safe(async () => { const r = await window.sys.restore(); if (r) toast('Backup restored', 'ok'); }));
+    // ---- stock online for the phone
+    async function drawSync() {
+      const st = await window.sys.stockSyncStatus();
+      const card = el('syncCard');
+      if (st.state === 'off') {
+        card.innerHTML = `
+          <p style="margin-top:0">See your shop's <b>stock on the phone even when this computer is off</b> (for example while buying maal in the market). The software puts a <b>locked copy</b> of your products and stock online, free, in your own secret GitHub Gist. Customers, udhar and sales are <b>never</b> sent. It updates by itself a few seconds after every change.</p>
+          <ol class="small" style="margin:6px 0 12px 18px">
+            <li>On github.com: your picture → <b>Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic)</b>.</li>
+            <li>Name: <i>stock</i>. Tick <b>only "gist"</b>. Expiration: <b>No expiration</b>. Generate, and copy the token.</li>
+            <li>Paste it below and press Connect.</li></ol>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><input type="password" id="ssToken" placeholder="GitHub token (ghp_…)" style="flex:1;min-width:260px" autocomplete="off"><button class="btn primary" id="ssGo">Connect</button></div>`;
+        el('ssGo').addEventListener('click', () => safe(async () => { await window.sys.stockSyncConnect(el('ssToken').value); toast('Connected. Stock is now online.', 'ok'); drawSync(); }));
+        return;
+      }
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">${st.state === 'ok' ? '<span class="badge ok">ON</span>' : '<span class="badge">CHECK</span>'}<span>${st.products} products are online</span></div>
+        <dl class="kv"><dt>Last sent</dt><dd>${esc(st.lastOk ? fmtStamp(st.lastOk) : 'not yet')}</dd></dl>
+        ${st.lastError ? `<div class="red" style="margin:8px 0">${esc(st.lastError)}</div>` : ''}
+        <p style="margin:10px 0 6px"><b>Connect the phone (once):</b> copy this link, send it to your phone (WhatsApp to yourself) and open it there. Keep this link private — it contains the key.</p>
+        <input type="text" id="ssLink" readonly value="${esc(st.link)}" style="width:100%">
+        <div class="toolbar" style="margin-top:10px"><button class="btn primary" id="ssCopy">Copy link</button><button class="btn" id="ssNow">Send stock now</button><span class="grow"></span><button class="btn" id="ssStop">Stop</button></div>`;
+      el('ssCopy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(st.link); toast('Link copied. Send it to your phone.', 'ok'); } catch (_) { el('ssLink').select(); toast('Press Ctrl+C to copy', 'ok'); } });
+      el('ssNow').addEventListener('click', () => safe(async () => { await window.sys.stockSyncNow(); toast('Stock sent', 'ok'); drawSync(); }));
+      el('ssStop').addEventListener('click', () => safe(async () => { if (!(await confirmBox('Stop sharing stock online? (The old online copy stays until you delete the Gist on github.com.)', { okLabel: 'Stop' }))) return; await window.sys.stockSyncStop(); drawSync(); }));
+    }
+    drawSync();
     // ---- folder backup card
     async function drawFolder() {
       const f = await window.sys.folderStatus();

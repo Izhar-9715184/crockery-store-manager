@@ -1,8 +1,8 @@
 'use strict';
 // Lets the page open with NO internet after the first visit.
 // Change VERSION whenever the page files change so phones pick up the new files.
-const VERSION = 'maal-v1';
-const FILES = ['./', './index.html', './app.js', './app.css', './packing.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const VERSION = 'maal-v3';
+const FILES = ['./', './index.html', './app.js', './app.css', './packing.js', './stockcrypto.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

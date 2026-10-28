@@ -147,6 +147,8 @@ test('product list for the phone: round trip', () => {
   assert.equal(out.count, 2);
   const back = Packing.unpack(out.text, 'CROCKERY-PRODUCTS');
   assert.deepEqual(back.items.map((i) => i.n).sort(), ['Dinner Plate', 'چائے کا کپ'].sort());
+  assert.equal(back.items.find((i) => i.n === 'Dinner Plate').q, 5);   // stock travels to the phone
+  assert.match(back.at, /^\d{4}-\d{2}-\d{2}$/);
   store.close();
 });
 

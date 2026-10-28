@@ -241,3 +241,6 @@ Naye features (kharcha/expenses, supplier ka hisab, Urdu interface, barcode scan
 - **Sale bill**: Sales History -> bill kholo -> "Edit bill". New Sale screen khulti hai, theek karke "Save changes". Invoice number wohi rehta hai; stock aur udhar khud sahi ho jate hain.
 - **Purchase (maal aaya)**: Products -> History -> stock-in ke saamne "Edit" (quantity / cost / date).
 - Har edit par "edited" likha aata hai aur purani value `edit_log` table mein mehfooz rehti hai.
+
+## Stock phone par online (laptop band ho tab bhi)
+Settings -> **Stock online for the phone**: GitHub token (sirf "gist" permission) paste karke Connect karein. Software products + stock ki **locked (encrypted)** copy aap ke apne secret Gist mein rakhta hai (customers/udhar/sales kabhi nahi jate). Har change ke kuch second baad aur software band karte waqt khud update hoti hai. Link phone par khol dein (ek dafa); phir Maal Entry internet milte hi stock khud utha leta hai aur offline ho to aakhri copy dikhata hai.

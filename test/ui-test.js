@@ -47,7 +47,7 @@ fs.mkdirSync(shots, { recursive: true });
     window.api = { call: async (n, ...a) => { const r = await window.__rpc(n, a); if (!r.ok) throw new Error(r.error); return r.data; } };
     window.sys = { info: () => window.__sysInfo(), checkUpdate: async () => ({ status: 'dev' }), installUpdate: async () => true,
       mobileStatus: () => window.__mobStatus(), mobileApply: async (o) => { const r = await window.__mobApply(o); if (!r.ok) throw new Error(r.error); return r.data; },
-      backupTo: async () => null, restore: async () => null, openBackups: async () => true, onUpdateStatus: () => {}, folderStatus: async () => ({ state: 'off', folder: '' }), cloudStatus: async () => ({ configured: false, state: 'unconfigured', connected: false }) };
+      backupTo: async () => null, restore: async () => null, openBackups: async () => true, onUpdateStatus: () => {}, stockSyncStatus: async () => ({ state: 'off' }), folderStatus: async () => ({ state: 'off', folder: '' }), cloudStatus: async () => ({ configured: false, state: 'unconfigured', connected: false }) };
     window.print = () => { window.__printed = (window.__printed || 0) + 1; };
   });
 
