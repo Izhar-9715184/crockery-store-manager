@@ -1,11 +1,8 @@
 name: Build and publish update
 
-# Push a tag like v1.0.4 -> this builds TWO Windows installers and publishes them
-# in ONE GitHub Release:
-#   1. Crockery-Store-Manager-Setup-<ver>.exe                 Windows 10 / 11 (64-bit)
-#   2. Crockery-Store-Manager-Win7-8-64bit-Setup-<ver>.exe    Windows 7 / 8 / 8.1 (64-bit)
-# Each installed copy updates itself from its own channel (latest / legacy),
-# so a Windows 8 laptop never receives the Windows 10 program or the other way round.
+# Push a tag like v1.0.4 -> this builds the Windows 10 / 11 (64-bit) installer
+#   Crockery-Store-Manager-Setup-<ver>.exe
+# and publishes it in a GitHub Release. (The Windows 7/8 build was removed.)
 on:
   push:
     tags: ['v*']
@@ -30,11 +27,10 @@ jobs:
     needs: create-release
     runs-on: windows-latest
     strategy:
-      fail-fast: false     # if one installer fails, the other is still published
+      fail-fast: false
       matrix:
         include:
           - { kind: modern, arch: x64,  channel: latest,   name: Crockery-Store-Manager-Setup }
-          - { kind: legacy, arch: x64,  channel: legacy,   name: Crockery-Store-Manager-Win7-8-64bit-Setup }
     defaults:
       run:
         shell: bash
@@ -46,18 +42,7 @@ jobs:
           node-version: 22
 
       - name: Install (Windows 10/11 program)
-        if: matrix.kind == 'modern'
         run: npm install
-
-      # Windows 7/8 need the older Electron 22 (newer Electron does not run there).
-      # It has no built-in SQLite, so the "better-sqlite3" package is added for this build only.
-      - name: Install (Windows 7/8 program)
-        if: matrix.kind == 'legacy'
-        run: |
-          npm pkg set devDependencies.electron=22.3.27 dependencies.electron-updater=5.3.0 dependencies.better-sqlite3=8.7.0
-          npm install --ignore-scripts
-          node node_modules/electron/install.js
-          npx electron-builder install-app-deps
 
       - name: Database / business-logic tests
         run: npm test

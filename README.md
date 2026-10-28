@@ -104,18 +104,8 @@ Hifazat ke usool:
 
 Agar Google branding ke liye domain verify karne ko kahe (github.io ke saath aisa ho sakta hai), to mujhe wo screen bhej dein; us ka hal alag tareeqe se nikal lenge.
 
-### Windows 7 / 8 / 8.1 ke liye alag installer
-
-Tag lagane par (misal `v1.0.4`) GitHub aik hi Release mein **do** installer banata hai:
-
-| File | Kis Windows ke liye |
-|---|---|
-| `Crockery-Store-Manager-Setup-<ver>.exe` | Windows 10 / 11 |
-| `Crockery-Store-Manager-Win7-8-64bit-Setup-<ver>.exe` | Windows 7 / 8 / 8.1 (sirf **64-bit**; 32-bit ke liye installer nahi hai) |
-
-64-bit hai ya nahi: Windows 8 mein *PC → Properties* (Windows 7 mein *Computer → Properties*) mein **System type** dekhein; "64-bit Operating System" likha hona chahiye.
-
-Har installer apne hi channel se update hota hai, is liye Windows 8 wale laptop ko Windows 10 wala program kabhi nahi milta. Purane Windows ke liye Electron 22 use hota hai jis ko ab security updates nahi milte; in laptops ko sirf dukaan ke kaam ke liye rakhein.
+### Windows
+Tag lagane par (misal `v1.0.4`) GitHub **Windows 10 / 11 (64-bit)** ka installer `Crockery-Store-Manager-Setup-<ver>.exe` banata hai. Windows 7/8 ka alag installer hata diya gaya hai.
 
 ---
 
@@ -224,8 +214,6 @@ Commands: `npm install` · `npm start` (chalana) · `npm test` (tests) · `npm r
 ## 7. Jo cheez abhi verify nahi hui (sach baat)
 
 **Google backup:** poora logic (sign-in ka tareeqa, upload, restore, do computers ka takrao, internet na hona) aik nakli Google server ke saath test hua hai (7 tests). Asal Google ke saath pehli dafa aap ke setup ke baad chalega. Setup ke baad pehle apne Gmail se sign in karke dekhein ke Drive mein copy ban rahi hai, phir dusre computer par restore bhi aazma lein.
-
-Windows 7/8 wale installers bhi yahan build ya chala kar nahi dekhe gaye. GitHub par smoke test chalta hai, lekin **asal Windows 7/8 PC par install karke aik sale zaroor test karein**, phir client ko dein.
 
 Is software ka database aur screens poori tarah test hue hain (13 database tests + browser mein poora UI test). Lekin jis environment mein ye bana, wahan Electron aur installer builder download nahi ho sakte the, is liye **ye cheezein pehli dafa asal Windows par chalni hain**: Electron window, installer (`.exe`), aur auto-update.
 
