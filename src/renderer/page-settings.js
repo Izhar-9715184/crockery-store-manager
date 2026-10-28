@@ -90,7 +90,7 @@ App.pages.settings = {
       const card = el('syncCard');
       if (st.state === 'off') {
         card.innerHTML = `
-          <p style="margin-top:0">See your shop's <b>stock on the phone even when this computer is off</b> (for example while buying maal in the market). The software puts a <b>locked copy</b> of your products and stock online, free, in your own secret GitHub Gist. Customers, udhar and sales are <b>never</b> sent. It updates by itself a few seconds after every change.</p>
+          <p style="margin-top:0">See your shop's <b>stock on the phone even when this computer is off</b> (for example while buying maal in the market). The software puts a <b>locked copy</b> of your products and stock online, free, in your own secret GitHub Gist. Sales and bills are <b>never</b> sent. (Later you can choose whether customers' udhar is also shown on the phone.) It updates by itself a few seconds after every change.</p>
           <ol class="small" style="margin:6px 0 12px 18px">
             <li>On github.com: your picture → <b>Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic)</b>.</li>
             <li>Name: <i>stock</i>. Tick <b>only "gist"</b>. Expiration: <b>No expiration</b>. Generate, and copy the token.</li>
@@ -104,11 +104,13 @@ App.pages.settings = {
         <dl class="kv"><dt>Last sent</dt><dd>${esc(st.lastOk ? fmtStamp(st.lastOk) : 'not yet')}</dd></dl>
         ${st.lastError ? `<div class="red" style="margin:8px 0">${esc(st.lastError)}</div>` : ''}
         ${st.waiting ? `<div class="card" style="border:2px solid var(--amber,#d97706);margin:10px 0"><div class="pad"><b>${st.waiting} purchase list${st.waiting === 1 ? '' : 's'} from the phone ${st.waiting === 1 ? 'needs' : 'need'} your review</b> (a product name was new or different). Open <b>Products &amp; Stock → Import from phone</b> and press <b>Load waiting lists</b>.</div></div>` : ''}
+        <label style="display:flex;gap:8px;align-items:flex-start;margin:8px 0"><input type="checkbox" id="ssUdhar" style="width:auto;margin-top:3px" ${st.udhar ? 'checked' : ''}><span>Also show <b>udhar</b> on the phone (Udhar tab): names, phone numbers, amounts owed and the last few entries of customers who owe money. Locked like the stock.</span></label>
         <p class="small muted" style="margin:6px 0">When you buy maal, the phone can send the list online. If every product name matches, the stock here goes up <b>by itself</b> (within a minute of the computer being on). Otherwise it waits for your review.</p>
         <p style="margin:10px 0 6px"><b>Connect the phone (once):</b> copy this link, send it to your phone (WhatsApp to yourself) and open it there. Keep this link private — it contains the key, and lets that phone send purchase lists.</p>
         <input type="text" id="ssLink" readonly value="${esc(st.link)}" style="width:100%">
         <div class="toolbar" style="margin-top:10px"><button class="btn primary" id="ssCopy">Copy link</button><button class="btn" id="ssNow">Send stock now</button><span class="grow"></span><button class="btn" id="ssStop">Stop</button></div>`;
       el('ssCopy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(st.link); toast('Link copied. Send it to your phone.', 'ok'); } catch (_) { el('ssLink').select(); toast('Press Ctrl+C to copy', 'ok'); } });
+      el('ssUdhar').addEventListener('change', (e) => safe(async () => { await window.sys.stockSyncUdhar(e.target.checked); toast(e.target.checked ? 'Udhar will show on the phone' : 'Udhar removed from the online copy', 'ok'); drawSync(); }));
       el('ssNow').addEventListener('click', () => safe(async () => { await window.sys.stockSyncNow(); toast('Stock sent', 'ok'); drawSync(); }));
       el('ssStop').addEventListener('click', () => safe(async () => { if (!(await confirmBox('Stop sharing stock online? (The old online copy stays until you delete the Gist on github.com.)', { okLabel: 'Stop' }))) return; await window.sys.stockSyncStop(); drawSync(); }));
     }

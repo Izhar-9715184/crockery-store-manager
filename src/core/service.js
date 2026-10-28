@@ -769,6 +769,16 @@ function createService(store) {
     return { count: items.length, text: Packing.pack(PREFIX_PRODUCTS, { v: 1, at: dateStr(), items }) };
   };
 
+  /** Customers who owe money: name, phone, amount, and their last few entries (for the phone's Udhar tab). */
+  S.exportUdharForPhone = () => {
+    const rows = S.listCustomers({ onlyDue: true }).filter((c) => c.balance > 0.004).slice(0, 400);
+    return rows.map((c) => {
+      const e = store.all('SELECT date, type, debit, credit, note FROM ledger WHERE customer_id=? ORDER BY date DESC, id DESC LIMIT 6', c.id)
+        .map((x) => ({ d: x.date, t: x.type, db: x.debit, cr: x.credit, n: String(x.note || '').slice(0, 60) }));
+      return { n: c.name, p: c.phone || '', b: c.balance, e };
+    }).sort((a, b) => b.b - a.b);
+  };
+
   S.dbInfo = () => ({
     file: store.file,
     folder: store.dir,

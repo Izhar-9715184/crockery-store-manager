@@ -72,7 +72,7 @@ class StockSync {
   link() { return this.s.gistId ? `${this.pagesUrl}#sync=${this.s.gistId}.${this.s.pass}&key=${this.s.token}` : ''; }
   status() {
     return { state: !this.s.gistId ? 'off' : (this.s.lastError ? 'error' : 'ok'), lastOk: this.s.lastOk || null,
-      lastError: this.s.lastError || '', link: this.link(), products: this.s.count || 0, waiting: this.waiting.length };
+      lastError: this.s.lastError || '', link: this.link(), products: this.s.count || 0, waiting: this.waiting.length, udhar: this.s.udhar !== false };
   }
 
   async _payload() {
@@ -80,6 +80,8 @@ class StockSync {
     const { Packing } = { Packing: require('../../docs/packing.js') };
     const obj = Packing.unpack(out.text, 'CROCKERY-PRODUCTS');
     obj.ts = new Date().toISOString();
+    try { obj.shop = String(this.service.getSettings().shop_name || '').slice(0, 60); } catch (_) { /* optional */ }
+    if (this.s.udhar !== false) obj.cust = this.service.exportUdharForPhone();    // names + balances of customers who owe money
     obj.imported = this.service.importedBatchIds();   // lets the phone know which of its lists are already counted
     return { content: await StockCrypto.encrypt(obj, this.s.pass), count: out.count };
   }
@@ -147,6 +149,12 @@ class StockSync {
   waitingList() { return this.waiting.map((w) => ({ id: w.id, date: w.date, supplier: w.supplier, lines: w.lines, text: w.text })); }
 
   dirty() { return !!this.s.gistId && this.store.writes !== this.sentWrites; }
+
+  /** Choose whether customers' udhar is also put online (locked) for the phone's Udhar tab. */
+  async setUdhar(on) {
+    this.s.udhar = !!on; this._save();
+    return this.push({ force: true });
+  }
 
   stop() {
     this.s = {}; this.sentWrites = -1; this._save();

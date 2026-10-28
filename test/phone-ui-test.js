@@ -116,6 +116,9 @@ function pagesServer() {
   await phone.click('.sheet [data-id]');
   await phone.click('#b_copy');                              // copy the sent list into a new one (new number)
   assert.equal(await phone.locator('.line').count(), 3);
+  await phone.evaluate(() => window.scrollTo(0, 0));
+  await phone.waitForTimeout(500);
+  await phone.screenshot({ path: path.join(shots, 'p0-top.png') });
 
   // product list from the laptop makes names suggestable + shows the shop price
   const plist = svc.exportProductsForPhone();
@@ -128,14 +131,15 @@ function pagesServer() {
   assert.match(await phone.textContent('#hint'), /cost 100/);
   assert.match(await phone.textContent('#hint'), /stock 5/);
   // "My stock" screen: search + tap a product to fill the name
-  await phone.click('#stockBtn');
-  await phone.waitForSelector('#k_list .item-row');
-  assert.equal(await phone.locator('#k_list .item-row').count(), 2);
+  await phone.click('[data-tab=stock]');
+  await phone.waitForSelector('#k_list .pcard');
+  assert.equal(await phone.locator('#k_list .pcard').count(), 2);
   await phone.fill('#k_q', 'glass');
-  assert.equal(await phone.locator('#k_list .item-row').count(), 1);
+  assert.equal(await phone.locator('#k_list .pcard').count(), 1);
   await phone.screenshot({ path: path.join(shots, 'p4-mystock.png') });
-  await phone.click('#k_list .item-row');
+  await phone.click('#k_list .pcard');
   assert.equal(await phone.inputValue('#name'), 'Glass Set 6pc');
+  assert.equal(await phone.isVisible('#v-maal'), true, 'tapping a product goes back to the entry tab');
   assert.match(await phone.textContent('#hint'), /stock 2/);
   await phone.fill('#name', '');
   await phone.fill('#name', 'Dinn');
@@ -145,7 +149,7 @@ function pagesServer() {
   {
     const StockCrypto = require('../docs/stockcrypto.js');
     const gid = 'b'.repeat(32), pass = 'k7m2p9x4qa';
-    let content = await StockCrypto.encrypt({ v: 1, at: '2026-10-28', ts: '2026-10-28T09:15:00', items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 33, u: 'pcs' }] }, pass);
+    let content = await StockCrypto.encrypt({ v: 1, at: '2026-10-28', ts: '2026-10-28T09:15:00', items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 33, u: 'pcs' }], cust: [{ n: 'Ali Khan', p: '0300 1234567', b: 5200, e: [{ d: '2026-10-20', t: 'credit_sale', db: 5200, cr: 0, n: 'Udhar on INV-00001' }] }, { n: 'Bilal', p: '', b: 800, e: [] }] }, pass);
     const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
     const uploads = [];
     await ctx2.route('https://api.github.com/gists/*', (r) => {
@@ -162,8 +166,24 @@ function pagesServer() {
     await p2.fill('#name', 'Tea Cup');
     assert.match(await p2.textContent('#hint'), /stock 33 pcs/);
     assert.ok(!(await p2.evaluate(() => location.hash)), 'secret removed from the address bar');
-    await p2.click('#menuBtn'); await p2.click('#m_stock');
+    await p2.click('[data-tab=stock]');
     assert.match(await p2.textContent('#k_age'), /28 Oct 2026, 09:15/);
+    assert.match(await p2.textContent('#stockTotal'), /33/);
+    await p2.click('[data-tab=udhar]');
+    assert.match(await p2.textContent('#udharTotal'), /6,000/);
+    assert.equal(await p2.locator('#u_list .ccard').count(), 2);
+    await p2.fill('#u_q', 'ali');
+    assert.equal(await p2.locator('#u_list .ccard').count(), 1);
+    await p2.click('#u_list .ccard');
+    assert.match(await p2.textContent('.sheet'), /Udhar on INV-00001/);
+    assert.ok(await p2.locator('a.call[href^="tel:"]').count());
+    await p2.waitForTimeout(400);
+    await p2.screenshot({ path: path.join(shots, 'p6-udhar-sheet.png') });
+    await p2.click('.sheet header button');
+    await p2.screenshot({ path: path.join(shots, 'p6-udhar.png') });
+    await p2.fill('#u_q', '');
+    await p2.click('[data-tab=maal]');
+    await p2.waitForTimeout(400);
     await p2.screenshot({ path: path.join(shots, 'p5-online.png') });
     // laptop sold some -> next refresh shows the new number
     content = await StockCrypto.encrypt({ v: 1, ts: '2026-10-28T11:00:00', items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 30, u: 'pcs' }] }, pass);

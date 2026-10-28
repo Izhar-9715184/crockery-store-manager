@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('sys', {
   stockSyncConnect: (token) => ipcRenderer.invoke('sys:stockSyncConnect', token),
   stockSyncNow: () => ipcRenderer.invoke('sys:stockSyncNow'),
   stockSyncStop: () => ipcRenderer.invoke('sys:stockSyncStop'),
+  stockSyncUdhar: (on) => ipcRenderer.invoke('sys:stockSyncUdhar', on),
   stockSyncWaiting: () => ipcRenderer.invoke('sys:stockSyncWaiting'),
   cloudStatus: () => ipcRenderer.invoke('sys:cloudStatus'),
   cloudConnect: () => ipcRenderer.invoke('sys:cloudConnect'),

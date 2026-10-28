@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; manifest-src 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#14343b">
+  <meta name="theme-color" content="#4f2bd6">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Maal Entry">
@@ -14,10 +14,10 @@
   <link rel="stylesheet" href="app.css">
   <title>Maal Entry</title>
 </head>
-<body>
+<body data-tab="maal">
   <header class="top">
-    <div>
-      <h1>Maal Entry</h1>
+    <div class="ttl">
+      <h1 id="pageTitle">Maal entry</h1>
       <div class="sub" id="status">Wholesale purchase list</div>
     </div>
     <button class="icon" id="menuBtn" aria-label="Menu">⋮</button>
@@ -25,42 +25,73 @@
   <div id="banner" class="banner" hidden></div>
 
   <main id="main">
-    <section class="card">
-      <div class="row2">
-        <label class="f"><span>Supplier / shop</span>
-          <input id="supplier" type="text" list="suppliers" placeholder="e.g. Rafiq Traders" autocomplete="off"></label>
-        <label class="f"><span>Date</span><input id="date" type="date"></label>
-      </div>
-      <datalist id="suppliers"></datalist>
-    </section>
+    <!-- ================= MAAL (buying list) ================= -->
+    <div class="view" id="v-maal">
+      <section class="hero tile">
+        <div class="hero-main"><div class="hero-label" id="heroKick">This purchase</div><div class="hero-num" id="heroAmt">Rs 0</div><div class="hero-sub" id="heroSub">No items yet</div></div>
+      </section>
+      <section class="panel">
+        <div class="row2">
+          <label class="f"><span>Supplier / shop</span>
+            <input id="supplier" type="text" list="suppliers" placeholder="e.g. Rafiq Traders" autocomplete="off"></label>
+          <label class="f"><span>Date</span><input id="date" type="date"></label>
+        </div>
+        <datalist id="suppliers"></datalist>
+      </section>
 
-    <section class="card">
-      <h2>Add item</h2>
-      <label class="f"><span>Product name</span>
-        <input id="name" type="text" list="plist" placeholder="e.g. Dinner Plate" autocomplete="off" autocapitalize="words"></label>
-      <datalist id="plist"></datalist>
-      <div id="hint" class="hint" hidden></div>
-      <button class="btn block" id="stockBtn" type="button" style="margin:-2px 0 10px">🧮 See my stock</button>
-      <div class="row2">
-        <label class="f"><span>Quantity</span><input id="qty" type="text" inputmode="decimal" placeholder="24"></label>
-        <label class="f"><span>Cost price (each)</span><input id="cost" type="text" inputmode="decimal" placeholder="120"></label>
-      </div>
-      <details id="more"><summary>Sale price (only for new products)</summary>
-        <label class="f"><span>Sale price (each)</span><input id="sale" type="text" inputmode="decimal" placeholder="optional"></label>
-      </details>
-      <div class="add-row"><div id="amt" class="amt"></div><button class="btn primary" id="addBtn">Add to list</button></div>
-    </section>
+      <section class="panel">
+        <h2>Add item</h2>
+        <label class="f"><span>Product name</span>
+          <input id="name" type="text" list="plist" placeholder="e.g. Dinner Plate" autocomplete="off" autocapitalize="words"></label>
+        <datalist id="plist"></datalist>
+        <div id="hint" class="hint" hidden></div>
+        <div class="row2">
+          <label class="f"><span>Quantity</span><input id="qty" type="text" inputmode="decimal" placeholder="24"></label>
+          <label class="f"><span>Cost price (each)</span><input id="cost" type="text" inputmode="decimal" placeholder="120"></label>
+        </div>
+        <div class="qchips" id="qchips" aria-label="Quick quantity"><button type="button" data-q="6">6</button><button type="button" data-q="12">12</button><button type="button" data-q="24">24</button><button type="button" data-q="36">36</button><button type="button" data-q="48">48</button><button type="button" data-q="100">100</button></div>
+        <details id="more"><summary>Sale price (only for new products)</summary>
+          <label class="f"><span>Sale price (each)</span><input id="sale" type="text" inputmode="decimal" placeholder="optional"></label>
+        </details>
+        <div class="add-row"><div id="amt" class="amt"></div><button class="btn primary" id="addBtn">Add to list</button></div>
+      </section>
 
-    <section>
-      <div class="list-head"><h2>This list</h2><span id="count" class="muted"></span></div>
-      <div id="lines"></div>
-    </section>
+      <section>
+        <div class="list-head"><h2>This list</h2><span id="count" class="muted"></span></div>
+        <div id="lines"></div>
+      </section>
+    </div>
+
+    <!-- ================= STOCK ================= -->
+    <div class="view" id="v-stock" hidden>
+      <section class="hero tile">
+        <div class="hero-main"><div class="hero-label">Pieces in your shop</div><div class="hero-num" id="stockTotal">–</div><div class="hero-sub" id="k_age">No stock list yet</div></div>
+      </section>
+      <div class="searchbox"><input id="k_q" type="search" placeholder="Search product…" autocomplete="off"></div>
+      <div class="seg2" id="k_seg"><button class="chip on" data-f="all">All</button><button class="chip" data-f="low">Low</button><button class="chip" data-f="out">Out</button></div>
+      <div id="k_list"></div>
+    </div>
+
+    <!-- ================= UDHAR ================= -->
+    <div class="view" id="v-udhar" hidden>
+      <section class="hero tile red">
+        <div class="hero-main"><div class="hero-label">Udhar pending</div><div class="hero-num" id="udharTotal">–</div><div class="hero-sub" id="udharSub">Not connected</div></div>
+      </section>
+      <div class="searchbox"><input id="u_q" type="search" placeholder="Search customer…" autocomplete="off"></div>
+      <div id="u_list"></div>
+    </div>
   </main>
 
   <footer class="bar" id="bar">
     <div><div id="totalAmt" class="total">Rs 0</div><div id="totalSub" class="muted small">No items yet</div></div>
     <button class="btn primary big" id="sendBtn">Send to laptop</button>
   </footer>
+
+  <nav class="tabs" id="tabs" aria-label="Sections">
+    <button class="tab on" data-tab="maal"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg><span>Maal</span></button>
+    <button class="tab" data-tab="stock"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/></svg><span>Stock</span></button>
+    <button class="tab" data-tab="udhar"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M17 8.5h4.5M19.2 6.3v4.4"/></svg><span>Udhar</span></button>
+  </nav>
 
   <div id="toast" class="toast" hidden></div>
   <div id="sheets"></div>

@@ -11,6 +11,11 @@
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const nice = (s) => { const [y, m, d] = s.split('-').map(Number); return `${d} ${MONTHS[m - 1]} ${y}`; };
   const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const GRADS = [['#5b34e6', '#c026d3'], ['#0b8f78', '#2fd6a8'], ['#d8285c', '#ff8a5b'], ['#2563eb', '#22d3ee'], ['#e08a00', '#ffcf4d'], ['#7c3aed', '#f472b6']];
+  const grad = (name) => { let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; const g = GRADS[h % GRADS.length]; return `linear-gradient(135deg, ${g[0]}, ${g[1]})`; };
+  const ini = (name) => esc((String(name).trim().match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase());
+  const avatar = (name) => `<div class="av" style="background:${grad(name)}">${ini(name)}</div>`;
+  const CUP = '<svg viewBox="0 0 80 80" fill="none" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="38" cy="66" rx="26" ry="5" fill="#8a7fd0" fill-opacity=".18"/><path d="M14 30h48c0 18-6 30-24 30S14 48 14 30z" fill="#fff" stroke="#6b4de0" stroke-width="3"/><path d="M62 35c9-1 11 12 1 15" stroke="#6b4de0" stroke-width="3"/><path d="M20 38h36" stroke="#ff6a3d" stroke-width="3"/><path d="M28 16c-3 3 3 5 0 9M38 14c-3 3 3 5 0 9M48 16c-3 3 3 5 0 9" stroke="#b02cc9" stroke-width="2.5"/></svg>';
   const num = (s) => { const n = Number(String(s).replace(/,/g, '').trim()); return s !== '' && Number.isFinite(n) ? n : NaN; };
   const rid = () => {
     const a = new Uint8Array(9);
@@ -24,9 +29,9 @@
   function load() {
     try {
       const o = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null };
+      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null, udhar: o.udhar || null };
     } catch (e) { /* first run or storage blocked */ }
-    return { batches: [], currentId: null, suppliers: [], products: null, sync: null };
+    return { batches: [], currentId: null, suppliers: [], products: null, sync: null, udhar: null };
   }
   let data = load();
   function save() {
@@ -139,8 +144,9 @@
         if (x.q !== undefined && Number.isFinite(Number(x.q))) { o.q = Number(x.q); o.u = String(x.u || '').slice(0, 20); }
         return o;
       });
-      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null, imported: Array.isArray(obj.imported) ? obj.imported.slice(0, 400) : [] };
-      save(); renderFields(); updateHint();
+      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null, shop: obj.shop || '', imported: Array.isArray(obj.imported) ? obj.imported.slice(0, 400) : [] };
+      data.udhar = Array.isArray(obj.cust) ? { list: obj.cust.slice(0, 400), ts: obj.ts || null } : null;
+      save(); renderFields(); updateHint(); renderStock(); renderUdhar();
       syncMsg = `Updated online · ${items.length} products`;
       return true;
     } catch (e) {
@@ -158,18 +164,24 @@
     $('#plist').innerHTML = productNames().map((n) => `<option value="${esc(n)}">`).join('');
   }
 
+  let popIdx = -1;
   function renderLines() {
     const b = ensureCurrent();
     const t = totals(b);
     $('#count').textContent = t.items ? `${t.items} item${t.items === 1 ? '' : 's'}` : '';
     $('#lines').innerHTML = b.lines.length
-      ? b.lines.map((l, i) => `<div class="line" data-i="${i}"><div class="main" data-edit="${i}"><div class="nm">${esc(l.n)}</div>
+      ? b.lines.map((l, i) => `<div class="line${popIdx === i ? ' pop' : ''}" data-i="${i}">${avatar(l.n)}<div class="main" data-edit="${i}"><div class="nm">${esc(l.n)}</div>
           <div class="calc">${fmt(l.q)} × ${fmt(l.c)}${l.s ? ` · sale ${fmt(l.s)}` : ''}</div></div>
           <div class="sum">${fmt(l.q * l.c)}</div><button class="x" data-del="${i}" aria-label="Remove">×</button></div>`).join('')
-      : '<div class="empty">Nothing added yet.<br>Add each item you buy, one by one.</div>';
+      : `<div class="empty">${CUP}<b>Nothing added yet</b><br>Add each item you buy, one by one.</div>`;
+    popIdx = -1;
     $('#totalAmt').textContent = money(t.amount);
     $('#totalSub').textContent = t.items ? `${t.items} item${t.items === 1 ? '' : 's'} · ${fmt(t.qty)} pcs` : 'No items yet';
     $('#sendBtn').disabled = !t.items;
+    const hr = new Date().getHours();
+    $('#heroKick').textContent = data.products && data.products.shop ? `${hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'}, ${data.products.shop}` : 'This purchase';
+    $('#heroAmt').textContent = money(t.amount);
+    $('#heroSub').textContent = t.items ? `${t.items} item${t.items === 1 ? '' : 's'} · ${fmt(t.qty)} pcs${b.supplier ? ' · ' + b.supplier : ''}` : 'Add what you buy, one by one';
   }
 
   function updateAmt() {
@@ -200,6 +212,8 @@
     const line = { n: name, q, c };
     if (s !== null) line.s = s;
     b.lines.push(line);
+    popIdx = b.lines.length - 1;
+    try { navigator.vibrate && navigator.vibrate(12); } catch (e) { /* ignore */ }
     save();
     for (const id of ['name', 'qty', 'cost', 'sale']) $('#' + id).value = '';
     $('#more').open = false;
@@ -332,13 +346,11 @@
   function openMenu() {
     const s = sheet('Menu', `
       <button class="menu-item" id="m_hist">📋 Old lists (History)</button>
-      <button class="menu-item" id="m_stock">🧮 My stock (what I have in the shop)</button>
       <button class="menu-item" id="m_online">🌐 Online stock (automatic)</button>
       <button class="menu-item" id="m_prod">📦 Product list by message (without internet)</button>
       <button class="menu-item" id="m_help">ℹ️ How it works / install</button>`);
     $('#m_hist', s.el).addEventListener('click', () => { s.close(); openHistory(); });
     $('#m_prod', s.el).addEventListener('click', () => { s.close(); openProducts(); });
-    $('#m_stock', s.el).addEventListener('click', () => { s.close(); openStock(); });
     $('#m_online', s.el).addEventListener('click', () => { s.close(); openOnline(); });
     $('#m_help', s.el).addEventListener('click', () => { s.close(); openHelp(); });
   }
@@ -404,36 +416,75 @@
     });
   }
 
-  function openStock() {
+  // ------------------------------------------------------------------ tabs: Maal / Stock / Udhar
+  const TITLES = { maal: 'Maal entry', stock: 'Stock', udhar: 'Udhar' };
+  let tab = 'maal';
+  let stockFilter = 'all';
+  function setTab(t) {
+    tab = t;
+    document.body.dataset.tab = t;
+    try { document.querySelector('meta[name=theme-color]').content = { maal: '#4f2bd6', stock: '#055e4d', udhar: '#7c1236' }[t]; } catch (e) { /* ignore */ }
+    for (const v of ['maal', 'stock', 'udhar']) $('#v-' + v).hidden = v !== t;
+    document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x.dataset.tab === t));
+    $('#pageTitle').textContent = TITLES[t];
+    $('#bar').hidden = t !== 'maal';
+    if (t === 'stock') renderStock();
+    if (t === 'udhar') renderUdhar();
+    window.scrollTo(0, 0);
+  }
+  const levelOf = (q) => (q <= 0 ? 'out' : q <= 5 ? 'low' : 'ok');
+
+  function renderStock() {
     const items = (data.products && data.products.items) || [];
+    const eff = (p) => (p.q === undefined ? null : p.q + comingFor(p));
+    const total = items.reduce((s, p) => s + Math.max(0, eff(p) || 0), 0);
+    $('#stockTotal').textContent = items.length ? fmt(total) : '–';
+    $('#k_age').textContent = items.length ? `${items.length} products · ${stockAge()}${data.sync ? '' : ' · update before you travel'}` : 'No stock list yet';
     if (!items.length) {
-      const s0 = sheet('My stock', '<div class="empty">No stock list on this phone yet.<br>At the laptop: <b>Products &amp; Stock → Product list for phone</b>, send it here, then Menu → Update stock.</div><button class="btn primary block" id="k_load">Load it now</button>');
-      $('#k_load', s0.el).addEventListener('click', () => { s0.close(); openProducts(); });
+      $('#k_list').innerHTML = `<div class="empty">${CUP}<b>No stock on this phone yet</b><br>${data.sync ? 'Connecting… pull down to retry, or open ⋮ → Online stock.' : 'Open the link from the laptop (Settings → Stock online for the phone), or use ⋮ → Product list by message.'}</div>`;
       return;
     }
-    const s = sheet('My stock', `
-      <div class="muted small" style="margin-bottom:8px" id="k_age">${esc(stockAge())}${data.sync ? '' : '. Changes after that are not counted — update it before you travel.'}</div>
-      <input id="k_q" type="search" placeholder="Search product…" autocomplete="off" style="width:100%;margin-bottom:8px">
-      <div class="seg2"><button class="chip on" data-f="all">All</button> <button class="chip" data-f="low">Low (5 or less)</button> <button class="chip" data-f="out">Out of stock</button></div>
-      <div id="k_list"></div>`);
-    let f = 'all';
-    const draw = () => {
-      const q = norm($('#k_q', s.el).value);
-      const rows = items.filter((p) => (!q || norm(p.n).includes(q) || norm(p.k).includes(q))
-        && (f === 'all' || (f === 'out' && p.q + comingFor(p) <= 0) || (f === 'low' && p.q + comingFor(p) > 0 && p.q + comingFor(p) <= 5)));
-      $('#k_list', s.el).innerHTML = rows.slice(0, 300).map((p) => `<div class="item-row" data-n="${esc(p.n)}" style="display:flex;justify-content:space-between;gap:10px">
-        <div><b>${esc(p.n)}</b><div class="muted small">cost ${fmt(p.c)} · sale ${fmt(p.s)}</div></div>
-        <div style="text-align:right;font-weight:700;color:${p.q + comingFor(p) <= 0 ? '#b3261e' : p.q + comingFor(p) <= 5 ? '#a15c00' : '#14504e'}">${p.q === undefined ? '–' : fmt(p.q + comingFor(p))}<div class="muted small" style="font-weight:400">${esc(p.u || '')}${comingFor(p) ? ' (incl. ' + fmt(comingFor(p)) + ' just bought)' : ''}</div></div></div>`).join('')
-        || '<div class="empty">Nothing found.</div>';
-    };
-    $('#k_q', s.el).addEventListener('input', draw);
-    s.el.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-f]');
-      if (b) { f = b.dataset.f; s.el.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('on', x === b)); draw(); return; }
-      const r = e.target.closest('[data-n]');
-      if (r) { $('#name').value = r.dataset.n; updateHint(); s.close(); $('#qty').focus(); }
-    });
-    draw();
+    const q = norm($('#k_q').value);
+    const max = Math.max(20, ...items.map((p) => eff(p) || 0));
+    const rows = items.filter((p) => (!q || norm(p.n).includes(q) || norm(p.k).includes(q)) && (stockFilter === 'all' || (eff(p) !== null && levelOf(eff(p)) === (stockFilter === 'low' ? 'low' : 'out'))));
+    $('#k_list').innerHTML = rows.slice(0, 300).map((p) => {
+      const e = eff(p);
+      const c = comingFor(p);
+      const lv = e === null ? 'ok' : levelOf(e);
+      return `<button class="pcard lvl-${lv}" data-n="${esc(p.n)}"><div class="top2"><div class="who">${avatar(p.n)}<div style="min-width:0"><div class="nm">${esc(p.n)}</div>
+        <div class="meta">cost ${fmt(p.c)} · sale ${fmt(p.s)}</div><span class="pill">${lv === 'out' ? 'Out of stock' : lv === 'low' ? 'Running low' : 'In stock'}</span>${c ? `<div class="coming">+ ${fmt(c)} just bought</div>` : ''}</div></div>
+        <div><div class="qn">${e === null ? '–' : fmt(e)}</div><div class="qu">${esc(p.u || 'pcs')}</div></div></div>
+        <div class="meter"><i style="width:${e === null ? 0 : Math.max(e > 0 ? 4 : 0, Math.min(100, (e / max) * 100))}%"></i></div></button>`;
+    }).join('') || '<div class="empty">Nothing found.</div>';
+  }
+
+  const fmtTs = (ts) => { const d = new Date(ts); return `${nice(ymd(d))}, ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  function renderUdhar() {
+    const u = data.udhar;
+    if (!u) {
+      $('#udharTotal').textContent = '–';
+      $('#udharSub').textContent = data.sync ? 'Udhar is not shared by the laptop' : 'Not connected';
+      $('#u_list').innerHTML = `<div class="empty">${CUP}<b>${data.sync ? 'Udhar is switched off' : 'Connect the laptop first'}</b><br>${data.sync ? 'At the laptop: Settings → Stock online for the phone → tick “Also show udhar on the phone”.' : 'Open the link from the laptop (Settings → Stock online for the phone) on this phone.'}</div>`;
+      return;
+    }
+    const total = u.list.reduce((s, c) => s + c.b, 0);
+    $('#udharTotal').textContent = money(total);
+    $('#udharSub').textContent = `${u.list.length} customer${u.list.length === 1 ? '' : 's'} owe you${u.ts ? ' · as of ' + fmtTs(u.ts) : ''}`;
+    const q = norm($('#u_q').value);
+    const rows = u.list.filter((c) => !q || norm(c.n).includes(q) || String(c.p).includes(q));
+    $('#u_list').innerHTML = rows.map((c, i) => `<button class="pcard ccard" data-c="${u.list.indexOf(c)}"><div class="top2"><div class="who">${avatar(c.n)}
+      <div style="min-width:0"><div class="nm">${esc(c.n)}</div><div class="meta">${esc(c.p || 'no phone')}</div></div></div><div class="bal">${fmt(c.b)}<small>Rs</small></div></div></button>`).join('')
+      || (u.list.length ? '<div class="empty">Nobody found.</div>' : '<div class="empty">${CUP}<b>Nobody owes you anything</b></div>');
+  }
+  function openCustomer(c) {
+    const typ = { opening: 'Old balance', credit_sale: 'Bill (udhar)', payment: 'Payment received', sale_cancel: 'Bill cancelled', adjust: 'Correction' };
+    const s = sheet(c.n, `
+      <div class="item-row" style="display:flex;justify-content:space-between;align-items:center"><div class="muted small">Udhar pending</div><div style="font-size:26px;font-weight:800;color:var(--red)">${money(c.b)}</div></div>
+      ${c.p ? `<a class="btn primary block call" href="tel:${esc(String(c.p).replace(/[^+\d]/g, ''))}">Call ${esc(c.p)}</a>` : ''}
+      <h2 style="margin:16px 2px 8px;font-size:15px">Latest entries</h2>
+      <div class="item-row" style="padding-top:2px;padding-bottom:2px">${c.e.length ? c.e.map((x) => `<div class="entry"><div><b>${esc(typ[x.t] || x.t)}</b><div class="muted small">${esc(nice(x.d))}${x.n ? ' · ' + esc(x.n) : ''}</div></div>
+        <div class="${x.db ? 'plus' : 'minus'}">${x.db ? '+' + fmt(x.db) : '−' + fmt(x.cr)}</div></div>`).join('') : '<div class="muted small" style="padding:10px 0">No entries.</div>'}</div>`);
+    return s;
   }
 
   function openProducts() {
@@ -505,6 +556,7 @@
     $('#name').addEventListener('input', updateHint);
     $('#name').addEventListener('change', updateHint);
     $('#qty').addEventListener('input', updateAmt);
+    $('#qchips').addEventListener('click', (e) => { const b = e.target.closest('[data-q]'); if (!b) return; $('#qty').value = b.dataset.q; updateAmt(); $('#cost').focus(); });
     $('#cost').addEventListener('input', updateAmt);
     $('#addBtn').addEventListener('click', addLine);
     for (const id of ['qty', 'cost', 'sale']) $('#' + id).addEventListener('keydown', (e) => { if (e.key === 'Enter') addLine(); });
@@ -521,7 +573,12 @@
     });
     $('#sendBtn').addEventListener('click', () => openSend(ensureCurrent()));
     $('#menuBtn').addEventListener('click', openMenu);
-    $('#stockBtn').addEventListener('click', openStock);
+    $('#k_q').addEventListener('input', renderStock);
+    $('#u_q').addEventListener('input', renderUdhar);
+    $('#k_seg').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; stockFilter = b.dataset.f; document.querySelectorAll('#k_seg .chip').forEach((x) => x.classList.toggle('on', x === b)); renderStock(); });
+    $('#k_list').addEventListener('click', (e) => { const r = e.target.closest('[data-n]'); if (!r) return; setTab('maal'); $('#name').value = r.dataset.n; updateHint(); $('#qty').focus(); });
+    $('#u_list').addEventListener('click', (e) => { const r = e.target.closest('[data-c]'); if (r && data.udhar) openCustomer(data.udhar.list[Number(r.dataset.c)]); });
+    $('#tabs').addEventListener('click', (e) => { const t = e.target.closest('[data-tab]'); if (t) setTab(t.dataset.tab); });
     window.addEventListener('online', setStatus);
     window.addEventListener('offline', setStatus);
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
@@ -532,6 +589,7 @@
         .then(() => { offlineReady = true; setStatus(); })
         .catch(() => { /* works online only */ });
     }
+    renderStock(); renderUdhar();
     const linked = readSyncLink();
     if (data.sync) fetchOnline(linked).then((ok) => { if (linked && ok) toast('Connected. Stock loaded.'); });
     window.addEventListener('online', () => { if (data.sync) fetchOnline(false); });
