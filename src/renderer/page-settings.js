@@ -103,7 +103,9 @@ App.pages.settings = {
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">${st.state === 'ok' ? '<span class="badge ok">ON</span>' : '<span class="badge">CHECK</span>'}<span>${st.products} products are online</span></div>
         <dl class="kv"><dt>Last sent</dt><dd>${esc(st.lastOk ? fmtStamp(st.lastOk) : 'not yet')}</dd></dl>
         ${st.lastError ? `<div class="red" style="margin:8px 0">${esc(st.lastError)}</div>` : ''}
-        <p style="margin:10px 0 6px"><b>Connect the phone (once):</b> copy this link, send it to your phone (WhatsApp to yourself) and open it there. Keep this link private — it contains the key.</p>
+        ${st.waiting ? `<div class="card" style="border:2px solid var(--amber,#d97706);margin:10px 0"><div class="pad"><b>${st.waiting} purchase list${st.waiting === 1 ? '' : 's'} from the phone ${st.waiting === 1 ? 'needs' : 'need'} your review</b> (a product name was new or different). Open <b>Products &amp; Stock → Import from phone</b> and press <b>Load waiting lists</b>.</div></div>` : ''}
+        <p class="small muted" style="margin:6px 0">When you buy maal, the phone can send the list online. If every product name matches, the stock here goes up <b>by itself</b> (within a minute of the computer being on). Otherwise it waits for your review.</p>
+        <p style="margin:10px 0 6px"><b>Connect the phone (once):</b> copy this link, send it to your phone (WhatsApp to yourself) and open it there. Keep this link private — it contains the key, and lets that phone send purchase lists.</p>
         <input type="text" id="ssLink" readonly value="${esc(st.link)}" style="width:100%">
         <div class="toolbar" style="margin-top:10px"><button class="btn primary" id="ssCopy">Copy link</button><button class="btn" id="ssNow">Send stock now</button><span class="grow"></span><button class="btn" id="ssStop">Stop</button></div>`;
       el('ssCopy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(st.link); toast('Link copied. Send it to your phone.', 'ok'); } catch (_) { el('ssLink').select(); toast('Press Ctrl+C to copy', 'ok'); } });

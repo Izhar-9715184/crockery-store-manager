@@ -132,11 +132,26 @@ function editStockInDialog(p, r, done) {
 
 /* ---------- purchases written on the phone (offline, at the wholesale market) ---------- */
 function importFromPhoneDialog(done) {
+  const loadWaiting = async (m) => {
+    try {
+      const list = window.sys.stockSyncWaiting ? await window.sys.stockSyncWaiting() : [];
+      if (!list.length) return;
+      $('#waitBox', m.body).innerHTML = `<div class="hint-box" style="background:var(--teal-soft);border-radius:10px;padding:10px;margin-bottom:12px"><b>${list.length} list${list.length === 1 ? '' : 's'} sent online from the phone</b>
+        ${list.map((w, i) => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:6px"><span>${esc(fmtDate(w.date))}${w.supplier ? ' · ' + esc(w.supplier) : ''} · ${w.lines} lines</span><button class="btn sm primary" data-wl="${i}">Review this list</button></div>`).join('')}</div>`;
+      $('#waitBox', m.body).addEventListener('click', (e) => {
+        const b = e.target.closest('[data-wl]');
+        if (!b) return;
+        $('[name=text]', m.body).value = list[Number(b.dataset.wl)].text;
+        toast('List loaded. Press Check.', 'ok');
+      });
+    } catch (_) { /* online lists just are not shown */ }
+  };
   const m = modal({
     title: 'Import purchases from phone',
     wide: true,
     body: `<p style="margin-top:0">On the phone, in <b>Maal Entry</b>, press <b>Send to laptop</b> and send the message to this computer (WhatsApp Web / Desktop, email…).
       Copy the whole message and paste it here, or choose the saved file.</p>
+      <div id="waitBox"></div>
       <label class="f"><span>Paste the message here</span><textarea name="text" style="min-height:150px" placeholder="Maal entry — …&#10;CROCKERY-MAAL:…"></textarea></label>
       <label class="f"><span>…or choose a saved file</span><input type="file" name="file" accept=".txt,.json,text/plain"></label>`,
     actions: [{ label: 'Cancel' }, {
@@ -154,6 +169,7 @@ function importFromPhoneDialog(done) {
     const f = e.target.files[0];
     if (f) $('[name=text]', m.body).value = await f.text();
   });
+  loadWaiting(m);
 }
 
 async function reviewPurchase(text, prev, done) {

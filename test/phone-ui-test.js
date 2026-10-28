@@ -147,11 +147,16 @@ function pagesServer() {
     const gid = 'b'.repeat(32), pass = 'k7m2p9x4qa';
     let content = await StockCrypto.encrypt({ v: 1, at: '2026-10-28', ts: '2026-10-28T09:15:00', items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 33, u: 'pcs' }] }, pass);
     const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
-    await ctx2.route('https://api.github.com/gists/*', (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
-      body: JSON.stringify({ files: { 'stock.json': { content } } }) }));
+    const uploads = [];
+    await ctx2.route('https://api.github.com/gists/*', (r) => {
+      const h = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' };
+      if (r.request().method() === 'OPTIONS') return r.fulfill({ status: 204, headers: h });
+      if (r.request().method() === 'PATCH') { uploads.push({ auth: r.request().headers().authorization, body: JSON.parse(r.request().postData()) }); return r.fulfill({ status: 200, contentType: 'application/json', headers: h, body: '{}' }); }
+      return r.fulfill({ status: 200, contentType: 'application/json', headers: h, body: JSON.stringify({ files: { 'stock.json': { content } } }) });
+    });
     const p2 = await ctx2.newPage();
     p2.on('pageerror', (e) => errors.push('online pageerror: ' + e.message));
-    await p2.goto(base + '#sync=' + gid + '.' + pass);
+    await p2.goto(base + '#sync=' + gid + '.' + pass + '&key=ghp_abcdefghijklmnopqrstuvwxyz0123');
     await p2.waitForFunction(() => window.__maalReady === true);
     await p2.waitForFunction(() => /Tea Cup/.test(document.querySelector('#plist').innerHTML), null, { timeout: 8000 });
     await p2.fill('#name', 'Tea Cup');
@@ -164,7 +169,27 @@ function pagesServer() {
     content = await StockCrypto.encrypt({ v: 1, ts: '2026-10-28T11:00:00', items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 30, u: 'pcs' }] }, pass);
     await p2.reload(); await p2.waitForFunction(() => window.__maalReady === true);
     await p2.waitForFunction(() => { const d = JSON.parse(localStorage.getItem('crockery.maal.v1')); return d.products && d.products.items[0].q === 30; }, null, { timeout: 8000 });
-    // wrong key -> friendly message, old copy kept
+    // write a purchase and send it online
+    await p2.fill('#name', 'Tea Cup'); await p2.fill('#qty', '12'); await p2.fill('#cost', '40'); await p2.click('#addBtn');
+    await p2.click('#sendBtn');
+    await p2.click('#s_online');
+    await p2.waitForFunction(() => /Sent online/.test(document.querySelector('#toast').textContent));
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].auth, 'Bearer ghp_abcdefghijklmnopqrstuvwxyz0123');
+    const fname = Object.keys(uploads[0].body.files)[0];
+    assert.match(fname, /^maal-b-[\w-]+\.json$/);
+    const sent = await StockCrypto.decrypt(uploads[0].body.files[fname].content, pass);
+    assert.equal(sent.lines[0].q, 12);
+    assert.ok(!uploads[0].body.files[fname].content.includes('Tea Cup'), 'locked');
+    await p2.fill('#name', 'Tea Cup');
+    assert.match(await p2.textContent('#hint'), /\+ 12 bought/);          // number is right at once, before the laptop counts it
+    // once the laptop lists it as imported, the "+12" disappears
+    content = await StockCrypto.encrypt({ v: 1, ts: '2026-10-28T12:00:00', imported: [sent.id], items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 42, u: 'pcs' }] }, pass);
+    await p2.click('#menuBtn'); await p2.click('#m_online'); await p2.click('#o_now');
+    await p2.waitForFunction(() => !document.querySelector('.sheet'));
+    await p2.fill('#name', ''); await p2.fill('#name', 'Tea Cup');
+    assert.match(await p2.textContent('#hint'), /stock 42 pcs/);
+    assert.ok(!/bought/.test(await p2.textContent('#hint')));
     await p2.close(); await ctx2.close();
   }
 

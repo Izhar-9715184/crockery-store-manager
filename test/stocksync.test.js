@@ -21,7 +21,11 @@ function fakeGithub() {
       if (req.headers.authorization !== 'Bearer ghp_goodtoken_goodtoken_1234') return send(401, {});
       if (req.method === 'POST' && req.url === '/gists') { const id = 'a'.repeat(32); gists[id] = JSON.parse(body).files; return send(201, { id }); }
       const m = /^\/gists\/(\w+)$/.exec(req.url);
-      if (req.method === 'PATCH' && m && gists[m[1]]) { Object.assign(gists[m[1]], JSON.parse(body).files); srv.patches = (srv.patches || 0) + 1; return send(200, { id: m[1] }); }
+      if (req.method === 'GET' && m && gists[m[1]]) return send(200, { id: m[1], files: gists[m[1]] });
+      if (req.method === 'PATCH' && m && gists[m[1]]) {
+        for (const [k, v] of Object.entries(JSON.parse(body).files)) { if (v === null) delete gists[m[1]][k]; else gists[m[1]][k] = v; }
+        srv.patches = (srv.patches || 0) + 1; return send(200, { id: m[1] });
+      }
       send(404, {});
     });
   });
@@ -50,10 +54,10 @@ test('connect makes a locked gist with stock only; changes are pushed; nothing c
     assert.equal(ss.status().state, 'off');
     const st = await ss.connect('ghp_goodtoken_goodtoken_1234');
     assert.equal(st.state, 'ok');
-    assert.match(st.link, /#sync=a{32}\.[a-z2-9]{10}$/);
+    assert.match(st.link, /#sync=a{32}\.[a-z2-9]{10}&key=/);
     const raw = gists['a'.repeat(32)]['stock.json'].content;
     assert.ok(!raw.includes('Plate'), 'online copy is locked');
-    const pass = st.link.split('.').pop();
+    const pass = st.link.split('#sync=')[1].split('&')[0].split('.')[1];
     let obj = await StockCrypto.decrypt(raw, pass);
     assert.equal(obj.items[0].q, 7);
     assert.ok(obj.ts);
@@ -86,4 +90,37 @@ test('no internet: error is shown, program keeps working, retried later', async 
     assert.match(st.lastError, /internet/);
     assert.equal(ss.dirty(), true);                     // will be retried
   } finally { store.close(); }
+});
+
+test('phone purchase arrives online: exact names are added at once, odd names wait for review', async () => {
+  const { srv, gists, api } = await fakeGithub();
+  const { store, service, ss } = setup(api);
+  try {
+    const st = await ss.connect('ghp_goodtoken_goodtoken_1234');
+    assert.match(st.link, /&key=ghp_goodtoken_goodtoken_1234$/);
+    const pass = st.link.split('#sync=')[1].split('&')[0].split('.')[1];
+    const gid = 'a'.repeat(32);
+    gists[gid]['maal-b-good1.json'] = { content: await StockCrypto.encrypt({ v: 1, id: 'b-good1', date: '2026-10-28', supplier: 'Rafiq', lines: [{ n: 'plate', q: 5, c: 110 }] }, pass) };
+    gists[gid]['maal-b-odd01.json'] = { content: await StockCrypto.encrypt({ v: 1, id: 'b-odd01', date: '2026-10-28', supplier: 'Rafiq', lines: [{ n: 'Plat typo', q: 2, c: 10 }] }, pass) };
+    await ss.poll();
+    assert.equal(service.listProducts({})[0].stock, 12);                  // 7 + 5
+    assert.ok(!gists[gid]['maal-b-good1.json'], 'handled file removed');
+    assert.ok(gists[gid]['maal-b-odd01.json'], 'unclear list stays');
+    assert.equal(ss.status().waiting, 1);
+    assert.equal(ss.waitingList()[0].id, 'b-odd01');
+    // the snapshot tells the phone which lists are already counted, and has the new stock
+    const obj = await StockCrypto.decrypt(gists[gid]['stock.json'].content, pass);
+    assert.equal(obj.items[0].q, 12);
+    assert.ok(obj.imported.includes('b-good1'));
+    // same list sent twice -> never added twice
+    gists[gid]['maal-b-good1.json'] = { content: await StockCrypto.encrypt({ v: 1, id: 'b-good1', date: '2026-10-28', lines: [{ n: 'plate', q: 5, c: 110 }] }, pass) };
+    await ss.poll();
+    assert.equal(service.listProducts({})[0].stock, 12);
+    assert.ok(!gists[gid]['maal-b-good1.json']);
+    // owner reviews the odd list at the laptop -> next poll clears it
+    service.applyPurchaseImport({ text: ss.waitingList()[0].text, decisions: [{ action: 'new', sale_price: 20 }] });
+    await ss.poll();
+    assert.equal(ss.status().waiting, 0);
+    assert.ok(!gists[gid]['maal-b-odd01.json']);
+  } finally { srv.close(); store.close(); }
 });

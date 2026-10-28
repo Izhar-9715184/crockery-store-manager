@@ -746,6 +746,19 @@ function createService(store) {
       return { imported: batch.lines.length - skipped, skipped, created, totalQty: qtyAdded, totalAmount: r2(amount) };
     });
 
+  /**
+   * For lists that arrive by themselves (phone -> online -> laptop): imports at once ONLY when every line
+   * matches a product exactly. Anything unclear (new or misspelt names) waits for the owner's review.
+   */
+  S.autoImportPurchase = (text) => {
+    const prev = S.previewPurchaseImport(text);
+    if (prev.alreadyImported) return { status: 'done', id: prev.id };
+    if (prev.lines.some((l) => !l.match)) return { status: 'review', id: prev.id, date: prev.date, supplier: prev.supplier, lines: prev.lines.length };
+    const r = S.applyPurchaseImport({ text, decisions: prev.lines.map((l) => ({ action: 'match', product_id: l.match.id })) });
+    return { status: 'imported', id: prev.id, ...r };
+  };
+  S.importedBatchIds = () => store.all('SELECT id FROM purchase_imports ORDER BY imported_at DESC LIMIT 300').map((r) => r.id);
+
   S.listPurchaseImports = () => store.all('SELECT * FROM purchase_imports ORDER BY imported_at DESC LIMIT 50');
 
   /** Product names for the phone page's suggestion list. Returns one line of text. */

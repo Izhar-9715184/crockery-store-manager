@@ -273,6 +273,7 @@ function registerIpc() {
   ipcMain.handle('sys:stockSyncConnect', (_e, token) => needSync().connect(token));
   ipcMain.handle('sys:stockSyncNow', () => needSync().push({ force: true }));
   ipcMain.handle('sys:stockSyncStop', () => needSync().stop());
+  ipcMain.handle('sys:stockSyncWaiting', async () => { if (!stockSync) return []; await stockSync.poll().catch(() => {}); return stockSync.waitingList(); });
 
   ipcMain.handle('sys:openBackups', () => shell.openPath(store.backupsDir));
 

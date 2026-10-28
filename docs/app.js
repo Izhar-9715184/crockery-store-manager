@@ -90,7 +90,18 @@
     return n ? ((data.products && data.products.items) || []).find((p) => norm(p.n) === n || (p.k && norm(p.k) === n)) : null;
   }
 
-  const stockText = (p) => (p.q === undefined ? 'stock unknown' : p.q <= 0 ? 'stock 0 (out)' : `stock ${fmt(p.q)}${p.u ? ' ' + p.u : ''}`);
+  // lists sent online but not yet counted by the laptop: show them as "coming" so the number is right at once
+  function comingFor(p) {
+    const done = new Set((data.products && data.products.imported) || []);
+    const n = norm(p.n);
+    let q = 0;
+    for (const b of data.batches) {
+      if (!b.online || done.has(b.id)) continue;
+      for (const l of b.lines) if (norm(l.n) === n) q += l.q;
+    }
+    return q;
+  }
+  const stockText = (p) => (p.q === undefined ? 'stock unknown' : (p.q + comingFor(p)) <= 0 ? 'stock 0 (out)' : `stock ${fmt(p.q)}${p.u ? ' ' + p.u : ''}${comingFor(p) ? ` + ${fmt(comingFor(p))} bought, on its way to the laptop` : ''}`);
   const stockAge = () => {
     const pr = data.products;
     if (!pr) return '';
@@ -104,7 +115,8 @@
   function readSyncLink() {
     const m = /[#&]sync=([0-9a-f]{20,40})\.([a-z0-9]{6,32})/i.exec(location.hash || '');
     if (!m) return false;
-    data.sync = { id: m[1], pass: m[2] };
+    const k = /[#&]key=([A-Za-z0-9_]{20,120})/.exec(location.hash || '');
+    data.sync = { id: m[1], pass: m[2], key: k ? k[1] : '' };
     save();
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
     return true;
@@ -127,7 +139,7 @@
         if (x.q !== undefined && Number.isFinite(Number(x.q))) { o.q = Number(x.q); o.u = String(x.u || '').slice(0, 20); }
         return o;
       });
-      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null };
+      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null, imported: Array.isArray(obj.imported) ? obj.imported.slice(0, 400) : [] };
       save(); renderFields(); updateHint();
       syncMsg = `Updated online · ${items.length} products`;
       return true;
@@ -242,15 +254,32 @@
     save(); renderFields(); renderLines();
   }
 
+  /** Sends the finished list online; the laptop adds it to the stock by itself. */
+  async function uploadBatch(b) {
+    if (!data.sync || !data.sync.key) throw new Error('This phone is not connected for sending. Open the link from the laptop again.');
+    if (!navigator.onLine) throw new Error('No internet. Use "Copy message" or try again later.');
+    const payload = { v: 1, id: b.id, date: b.date, supplier: b.supplier || '',
+      lines: b.lines.map((l) => (l.s !== undefined ? { n: l.n, q: l.q, c: l.c, s: l.s } : { n: l.n, q: l.q, c: l.c })) };
+    const content = await self.StockCrypto.encrypt(payload, data.sync.pass);
+    const r = await fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: { ['maal-' + b.id + '.json']: { content } } }) });
+    if (!r.ok) throw new Error(r.status === 401 ? 'The key in the link is not accepted. Open a fresh link from the laptop.' : `Could not send (${r.status}). Try again.`);
+    b.online = true;
+    if (!b.sentAt) b.sentAt = Date.now();
+    if (data.currentId === b.id) data.currentId = null;
+    save(); renderFields(); renderLines();
+  }
+
   function openSend(b) {
     if (!b.lines.length) return toast('Add at least one item first', true);
     const text = packedText(b);
     const canShare = typeof navigator.share === 'function';
     const s = sheet(b.sentAt ? 'Send again' : 'Send to laptop', `
-      <p class="muted small" style="margin-top:0">Send this message to the shop (WhatsApp, SMS, email — anything). At the laptop, open the software → <b>Products &amp; Stock → Import from phone</b> and paste it.</p>
+      <p class="muted small" style="margin-top:0">${data.sync && data.sync.key ? '<b>Best:</b> press "Send online". The laptop adds it to the stock by itself. Or send the message by WhatsApp as before.' : ''} Send this message to the shop (WhatsApp, SMS, email — anything). At the laptop, open the software → <b>Products &amp; Stock → Import from phone</b> and paste it.</p>
       <pre>${esc(summaryText(b))}</pre>
-      ${canShare ? '<button class="btn primary block big" id="s_share">Send (WhatsApp etc.)</button>' : ''}
-      <button class="btn block ${canShare ? '' : 'primary'}" id="s_copy">Copy message</button>
+      ${data.sync && data.sync.key ? `<button class="btn primary block big" id="s_online">${b.online ? 'Send online again' : 'Send online — stock updates by itself'}</button>` : ''}
+      ${canShare ? '<button class="btn block" id="s_share">Send (WhatsApp etc.)</button>' : ''}
+      <button class="btn block" id="s_copy">Copy message</button>
       <button class="btn block" id="s_file">Save as a file</button>
       <div id="s_done"></div>`);
     const offerDone = () => {
@@ -258,6 +287,12 @@
       $('#s_done', s.el).innerHTML = '<button class="btn teal block" id="s_mark">I have sent it — start a new list</button>';
       $('#s_mark', s.el).addEventListener('click', () => { markSent(b); s.close(); toast('Saved in History. New list ready.'); });
     };
+    const onl = $('#s_online', s.el);
+    if (onl) onl.addEventListener('click', async () => {
+      onl.disabled = true;
+      try { await uploadBatch(b); s.close(); toast('Sent online. The laptop will add it to the stock.'); }
+      catch (e) { onl.disabled = false; toast(e.message, true); }
+    });
     if (canShare) {
       $('#s_share', s.el).addEventListener('click', async () => {
         try {
@@ -359,9 +394,11 @@
     if (off) off.addEventListener('click', () => { data.sync = null; save(); s.close(); toast('Disconnected'); });
     const go = $('#o_go', s.el);
     if (go) go.addEventListener('click', async () => {
-      const m = /sync=([0-9a-f]{20,40})\.([a-z0-9]{6,32})/i.exec($('#o_link', s.el).value);
+      const val = $('#o_link', s.el).value;
+      const m = /sync=([0-9a-f]{20,40})\.([a-z0-9]{6,32})/i.exec(val);
       if (!m) return toast('This is not a valid link', true);
-      data.sync = { id: m[1], pass: m[2] }; save();
+      const k = /key=([A-Za-z0-9_]{20,120})/.exec(val);
+      data.sync = { id: m[1], pass: m[2], key: k ? k[1] : '' }; save();
       go.disabled = true;
       const ok = await fetchOnline(true); s.close(); if (ok) toast('Connected. Stock loaded.');
     });
@@ -383,10 +420,10 @@
     const draw = () => {
       const q = norm($('#k_q', s.el).value);
       const rows = items.filter((p) => (!q || norm(p.n).includes(q) || norm(p.k).includes(q))
-        && (f === 'all' || (f === 'out' && p.q <= 0) || (f === 'low' && p.q > 0 && p.q <= 5)));
+        && (f === 'all' || (f === 'out' && p.q + comingFor(p) <= 0) || (f === 'low' && p.q + comingFor(p) > 0 && p.q + comingFor(p) <= 5)));
       $('#k_list', s.el).innerHTML = rows.slice(0, 300).map((p) => `<div class="item-row" data-n="${esc(p.n)}" style="display:flex;justify-content:space-between;gap:10px">
         <div><b>${esc(p.n)}</b><div class="muted small">cost ${fmt(p.c)} · sale ${fmt(p.s)}</div></div>
-        <div style="text-align:right;font-weight:700;color:${p.q <= 0 ? '#b3261e' : p.q <= 5 ? '#a15c00' : '#14504e'}">${p.q === undefined ? '–' : fmt(p.q)}<div class="muted small" style="font-weight:400">${esc(p.u || '')}</div></div></div>`).join('')
+        <div style="text-align:right;font-weight:700;color:${p.q + comingFor(p) <= 0 ? '#b3261e' : p.q + comingFor(p) <= 5 ? '#a15c00' : '#14504e'}">${p.q === undefined ? '–' : fmt(p.q + comingFor(p))}<div class="muted small" style="font-weight:400">${esc(p.u || '')}${comingFor(p) ? ' (incl. ' + fmt(comingFor(p)) + ' just bought)' : ''}</div></div></div>`).join('')
         || '<div class="empty">Nothing found.</div>';
     };
     $('#k_q', s.el).addEventListener('input', draw);

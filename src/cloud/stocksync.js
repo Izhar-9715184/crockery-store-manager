@@ -39,6 +39,8 @@ class StockSync {
     this.sentWrites = -1;
     this.busy = null;
     this.timer = null;
+    this.waiting = [];     // phone purchases that need the owner's review
+    this.tick = 0;
   }
   _load() { try { return JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch (_) { return {}; } }
   _save() { const t = this.file + '.tmp'; fs.writeFileSync(t, JSON.stringify(this.s, null, 1)); fs.renameSync(t, this.file); }
@@ -67,10 +69,10 @@ class StockSync {
     });
   }
 
-  link() { return this.s.gistId ? `${this.pagesUrl}#sync=${this.s.gistId}.${this.s.pass}` : ''; }
+  link() { return this.s.gistId ? `${this.pagesUrl}#sync=${this.s.gistId}.${this.s.pass}&key=${this.s.token}` : ''; }
   status() {
     return { state: !this.s.gistId ? 'off' : (this.s.lastError ? 'error' : 'ok'), lastOk: this.s.lastOk || null,
-      lastError: this.s.lastError || '', link: this.link(), products: this.s.count || 0 };
+      lastError: this.s.lastError || '', link: this.link(), products: this.s.count || 0, waiting: this.waiting.length };
   }
 
   async _payload() {
@@ -78,6 +80,7 @@ class StockSync {
     const { Packing } = { Packing: require('../../docs/packing.js') };
     const obj = Packing.unpack(out.text, 'CROCKERY-PRODUCTS');
     obj.ts = new Date().toISOString();
+    obj.imported = this.service.importedBatchIds();   // lets the phone know which of its lists are already counted
     return { content: await StockCrypto.encrypt(obj, this.s.pass), count: out.count };
   }
 
@@ -114,6 +117,35 @@ class StockSync {
     })();
     return this.busy;
   }
+  /**
+   * Purchases written on the phone arrive as small locked files (maal-*.json) in the same Gist.
+   * Exact-match lists are added to the stock at once; the rest wait for review. Handled files are removed.
+   */
+  async poll() {
+    if (!this.s.gistId) return;
+    let g;
+    try { g = await this._req('GET', `/gists/${this.s.gistId}`, null, this.s.token); } catch (e) { return; }
+    const waiting = [];
+    const remove = {};
+    let imported = false;
+    for (const [name, f] of Object.entries(g.files || {})) {
+      if (!/^maal-[\w-]+\.json$/.test(name) || !f || f.truncated) continue;
+      try {
+        const batch = await StockCrypto.decrypt(f.content, this.s.pass);
+        const text = require('../../docs/packing.js').pack('CROCKERY-MAAL', batch);
+        const r = this.service.autoImportPurchase(text);
+        if (r.status === 'review') waiting.push({ name, id: r.id, date: r.date, supplier: r.supplier, lines: r.lines, text });
+        else { remove[name] = null; if (r.status === 'imported') imported = true; }
+      } catch (e) { this.log(`phone list ${name}: ${e.message}`); }
+    }
+    this.waiting = waiting;
+    if (Object.keys(remove).length) {
+      try { await this._req('PATCH', `/gists/${this.s.gistId}`, { files: remove }, this.s.token); } catch (e) { /* removed next time */ }
+    }
+    if (imported) await this.push({ force: true });
+  }
+  waitingList() { return this.waiting.map((w) => ({ id: w.id, date: w.date, supplier: w.supplier, lines: w.lines, text: w.text })); }
+
   dirty() { return !!this.s.gistId && this.store.writes !== this.sentWrites; }
 
   stop() {
@@ -122,9 +154,12 @@ class StockSync {
   }
   start() {
     if (this.timer) return;
-    this.timer = setInterval(() => { this.push().catch(() => {}); }, this.intervalMs);
+    this.timer = setInterval(() => {
+      this.tick++;
+      (this.tick % 3 === 0 ? this.poll() : Promise.resolve()).catch(() => {}).then(() => this.push()).catch(() => {});
+    }, this.intervalMs);
     if (this.timer.unref) this.timer.unref();
-    setTimeout(() => { this.push({ force: true }).catch(() => {}); }, 8000).unref();
+    setTimeout(() => { this.poll().catch(() => {}).then(() => this.push({ force: true })).catch(() => {}); }, 8000).unref();
   }
   /** Last copy when the program is closed (max ~6 s). */
   async pushOnExit() {

@@ -232,3 +232,5 @@ Naye features (kharcha/expenses, supplier ka hisab, Urdu interface, barcode scan
 
 ## Stock phone par online (laptop band ho tab bhi)
 Settings -> **Stock online for the phone**: GitHub token (sirf "gist" permission) paste karke Connect karein. Software products + stock ki **locked (encrypted)** copy aap ke apne secret Gist mein rakhta hai (customers/udhar/sales kabhi nahi jate). Har change ke kuch second baad aur software band karte waqt khud update hoti hai. Link phone par khol dein (ek dafa); phir Maal Entry internet milte hi stock khud utha leta hai aur offline ho to aakhri copy dikhata hai.
+
+**Phone se seedha stock barhana:** Maal Entry mein list ke baad **Send online** dabayein. Laptop on hote hi (1 minute ke andar) agar saare naam bilkul match karein to stock khud barh jata hai; naya/ghalat naam ho to Products & Stock -> Import from phone mein "Review this list" aata hai. Phone par number usi waqt sahi dikhta hai ("+12 bought"). Is ke liye phone par laptop ka **naya link** (jis mein `&key=` ho) kholna hota hai.
