@@ -124,3 +124,35 @@ test('phone purchase arrives online: exact names are added at once, odd names wa
     assert.ok(!gists[gid]['maal-b-odd01.json']);
   } finally { srv.close(); store.close(); }
 });
+
+test('phone bill arrives online: made at once, never twice; a bill that cannot be made stays visible', async () => {
+  const { srv, gists, api } = await fakeGithub();
+  const { store, service, ss } = setup(api);
+  try {
+    const st = await ss.connect('ghp_goodtoken_goodtoken_1234');
+    const pass = st.link.split('#sync=')[1].split('&')[0].split('.')[1];
+    const gid = 'a'.repeat(32);
+    const prod = service.listProducts({})[0];
+    const cust = service.saveCustomer({ name: 'Ali' });
+    const good = { v: 1, id: 'bill-b-good1', date: '2026-11-02', cid: cust.id, cn: 'Ali', paid: 0, lines: [{ p: prod.id, n: 'Plate', q: 3, pr: 150 }] };
+    const bad = { v: 1, id: 'bill-b-bad01', date: '2026-11-02', cid: cust.id, cn: 'Ali', paid: 0, lines: [{ p: prod.id, n: 'Plate', q: 500, pr: 150 }] };
+    gists[gid]['bill-b-good1.json'] = { content: await StockCrypto.encrypt(good, pass) };
+    gists[gid]['bill-b-bad01.json'] = { content: await StockCrypto.encrypt(bad, pass) };
+    await ss.poll();
+    assert.equal(service.listProducts({})[0].stock, 4);                       // 7 - 3
+    assert.equal(service.getCustomer(cust.id).balance, 450);
+    assert.ok(!gists[gid]['bill-b-good1.json']);
+    assert.ok(gists[gid]['bill-b-bad01.json']);
+    assert.equal(ss.status().billErrors.length, 1);
+    assert.match(ss.status().billErrors[0].error, /Not enough stock/);
+    const snap = await StockCrypto.decrypt(gists[gid]['stock.json'].content, pass);
+    assert.ok(snap.billsDone.includes('bill-b-good1'));
+    assert.ok(snap.custAll.find((c) => c.n === 'Ali' && c.b === 450));
+    assert.equal(snap.items[0].i, prod.id);
+    await ss.poll();                                                          // retried, still not made, still only once
+    assert.equal(service.listProducts({})[0].stock, 4);
+    await ss.dismissBill('bill-b-bad01.json');
+    assert.ok(!gists[gid]['bill-b-bad01.json']);
+    assert.equal(ss.status().billErrors.length, 0);
+  } finally { srv.close(); store.close(); }
+});

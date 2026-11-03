@@ -113,3 +113,36 @@ test('stock-in: fix quantity and cost; cost price follows latest; cannot go belo
   assert.throws(() => t.svc.updateStockIn({ id: sale.id, qty: 1 }), /stock-in/);
   assert.ok(t.store.get('SELECT edited_at FROM stock_moves WHERE id=?', m.id).edited_at);
 });
+
+test('ledger: wrong entries can be deleted (not bill rows); balance follows; logged', () => {
+  const t = fresh();
+  t.svc.addOldBalance({ customer_id: t.ali.id, amount: 5000 });
+  t.svc.receivePayment({ customer_id: t.ali.id, amount: 900 });
+  const pay = t.svc.customerLedger(t.ali.id).entries.find((x) => x.type === 'payment');
+  assert.equal(t.svc.deleteLedgerEntry(pay.id).balance, 5000);
+  assert.equal(t.svc.customerLedger(t.ali.id).entries.length, 1);
+  assert.equal(t.store.all(`SELECT * FROM edit_log WHERE entity='ledger_deleted'`).length, 1);
+  t.svc.createSale({ customer_id: t.bob.id, items: [{ product_id: t.plate.id, qty: 1, price: 150 }], paid: 0 });
+  const bill = t.svc.customerLedger(t.bob.id).entries[0];
+  assert.throws(() => t.svc.deleteLedgerEntry(bill.id), /bill/);
+  assert.throws(() => t.svc.deleteLedgerEntry(99999), /not found/);
+});
+
+test('phone bill: created once, stock + udhar right, unknown product / too much stock refused', () => {
+  const t = fresh();
+  const b = { v: 1, id: 'bill-ph-0001', date: '2026-11-02', cid: t.ali.id, cn: 'Ali', paid: 100, method: 'cash', lines: [{ p: t.plate.id, n: 'Plate', q: 2, pr: 150 }] };
+  const r = t.svc.createSaleFromPhone(b);
+  assert.equal(r.status, 'created');
+  assert.equal(r.due, 200);
+  assert.equal(bal(t, t.ali), 200);
+  assert.equal(stock(t, t.plate), 18);
+  assert.equal(t.svc.createSaleFromPhone(b).status, 'done');           // same bill again -> nothing happens
+  assert.equal(stock(t, t.plate), 18);
+  assert.throws(() => t.svc.createSaleFromPhone({ ...b, id: 'bill-ph-0002', lines: [{ p: t.plate.id, n: 'Plate', q: 99, pr: 150 }] }), /Not enough stock/);
+  assert.throws(() => t.svc.createSaleFromPhone({ ...b, id: 'bill-ph-0003', lines: [{ n: 'Nothing', q: 1, pr: 1 }] }), /not found/);
+  assert.throws(() => t.svc.createSaleFromPhone({ ...b, id: 'bill-ph-0004', cid: null, paid: 0 }), /select a customer/);   // udhar needs a customer
+  assert.ok(t.svc.getSale(t.store.get('SELECT id FROM sales WHERE phone_id=?', 'bill-ph-0001').id).note.includes('phone'));
+  assert.deepEqual(t.svc.phoneBillIds(), ['bill-ph-0001']);
+  assert.ok(t.svc.exportCustomersForPhone().find((c) => c.n === 'Ali' && c.b === 200));
+  assert.equal(t.svc.exportCustomersForPhone(false)[0].b, undefined);
+});

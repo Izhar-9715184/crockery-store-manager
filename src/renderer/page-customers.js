@@ -162,8 +162,8 @@ async function openLedger(id, onChange) {
         ${led.entries.map((e) => `<tr><td class="nowrap">${esc(fmtDate(e.date))}</td><td>${esc(e.note || e.type)}${e.edited_at ? '<span class="edited-tag" title="Edited ' + esc(e.edited_at) + '">edited</span>' : ''}${e.method && e.type === 'payment' ? ` <span class="muted small">(${esc(e.method)})</span>` : ''}</td>
           <td class="r num ${e.debit ? 'red' : ''}">${e.debit ? qty(e.debit) : ''}</td><td class="r num ${e.credit ? 'teal' : ''}">${e.credit ? qty(e.credit) : ''}</td>
           <td class="r num"><b>${qty(e.balance)}</b></td>
-          <td class="r nowrap">${e.type === 'credit_sale' ? `<button class="edit-link" data-bill="${e.sale_id}" title="Open the bill to edit it">Edit bill</button>`
-            : e.type === 'sale_cancel' ? '' : `<button class="edit-link" data-edit="${e.id}">Edit</button>`}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">No entries yet.</td></tr>'}
+          <td class="r nowrap">${e.type === 'credit_sale' ? `<button class="edit-link" data-bill="${e.sale_id}" title="Open the bill to edit it">Edit bill</button><button class="edit-link del" data-delbill="${e.sale_id}" data-inv="${esc(e.invoice_no || '')}" title="Delete this bill">Delete</button>`
+            : e.type === 'sale_cancel' ? '' : `<button class="edit-link" data-edit="${e.id}">Edit</button><button class="edit-link del" data-del="${e.id}" title="Delete this entry">Delete</button>`}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">No entries yet.</td></tr>'}
       </tbody></table></div>`;
     m.ledger = led;
   };
@@ -172,6 +172,19 @@ async function openLedger(id, onChange) {
     const refresh = async () => { await render(); if (onChange) onChange(); };
     const ed = e.target.closest('[data-edit]');
     if (ed) { editLedgerEntryDialog(m.ledger.entries.find((x) => x.id === Number(ed.dataset.edit)), refresh); return; }
+    const del = e.target.closest('[data-del]');
+    if (del) {
+      if (await confirmBox('Delete this entry? The customer\'s balance will be recalculated. (The old value is kept in the edit log.)', { okLabel: 'Delete' })) {
+        await safe(async () => { await rpc('deleteLedgerEntry', Number(del.dataset.del)); toast('Entry deleted', 'ok'); await refresh(); });
+      }
+      return;
+    }
+    const delBill = e.target.closest('[data-delbill]');
+    if (delBill) {
+      const reason = await askText({ title: `Delete bill ${delBill.dataset.inv}`, label: 'Why is this bill being deleted?', okLabel: 'Delete bill' });
+      if (reason) await safe(async () => { await rpc('cancelSale', Number(delBill.dataset.delbill), reason); toast('Bill deleted. Stock and udhar were restored.', 'ok'); await refresh(); });
+      return;
+    }
     const bill = e.target.closest('[data-bill]');
     if (bill) { showInvoice(Number(bill.dataset.bill), { onChange: refresh }); return; }
     const b = e.target.closest('[data-a]');
@@ -207,7 +220,7 @@ App.pages.customers = {
       const total = rows.reduce((s, c) => s + (c.balance > 0 ? c.balance : 0), 0);
       el('sub').innerHTML = `${rows.length} customer${rows.length === 1 ? '' : 's'} · total udhar <b class="red">${money(total)}</b>`;
       el('rows').innerHTML = rows.length ? rows.map((c) => `<tr data-id="${c.id}">
-        <td><b>${esc(c.name)}</b></td><td>${esc(c.phone || '')}</td><td class="muted">${esc(c.address || '')}</td>
+        <td>${nameWithAvatar(c.name)}</td><td>${esc(c.phone || '')}</td><td class="muted">${esc(c.address || '')}</td>
         <td class="r num"><b class="${c.balance > 0.004 ? 'red' : c.balance < -0.004 ? 'teal' : 'muted'}">${c.balance > 0.004 || c.balance < -0.004 ? money(c.balance) : '–'}</b></td>
         <td><div class="actions"><button class="btn sm" data-a="ledger">Ledger</button><button class="btn sm teal" data-a="pay">Receive payment</button><button class="btn sm" data-a="edit">Edit</button></div></td></tr>`).join('')
         : `<tr><td colspan="5" class="empty">${st.due ? 'Nobody owes you anything.' : 'No customers yet. Click “Add customer”.'}</td></tr>`;

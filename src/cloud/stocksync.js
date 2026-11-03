@@ -40,6 +40,7 @@ class StockSync {
     this.busy = null;
     this.timer = null;
     this.waiting = [];     // phone purchases that need the owner's review
+    this.billErrors = [];  // phone bills that could not be made yet (e.g. not enough stock)
     this.tick = 0;
   }
   _load() { try { return JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch (_) { return {}; } }
@@ -72,7 +73,7 @@ class StockSync {
   link() { return this.s.gistId ? `${this.pagesUrl}#sync=${this.s.gistId}.${this.s.pass}&key=${this.s.token}` : ''; }
   status() {
     return { state: !this.s.gistId ? 'off' : (this.s.lastError ? 'error' : 'ok'), lastOk: this.s.lastOk || null,
-      lastError: this.s.lastError || '', link: this.link(), products: this.s.count || 0, waiting: this.waiting.length, udhar: this.s.udhar !== false };
+      lastError: this.s.lastError || '', link: this.link(), products: this.s.count || 0, waiting: this.waiting.length, billErrors: this.billErrors.map((b) => ({ name: b.name, id: b.id, error: b.error, customer: b.customer, total: b.total })), udhar: this.s.udhar !== false };
   }
 
   async _payload() {
@@ -82,7 +83,9 @@ class StockSync {
     obj.ts = new Date().toISOString();
     try { obj.shop = String(this.service.getSettings().shop_name || '').slice(0, 60); } catch (_) { /* optional */ }
     if (this.s.udhar !== false) obj.cust = this.service.exportUdharForPhone();    // names + balances of customers who owe money
-    obj.imported = this.service.importedBatchIds();   // lets the phone know which of its lists are already counted
+    obj.custAll = this.service.exportCustomersForPhone(this.s.udhar !== false);   // for bills written on the phone
+    obj.imported = this.service.importedBatchIds();
+    obj.billsDone = this.service.phoneBillIds();   // lets the phone know which of its lists are already counted
     return { content: await StockCrypto.encrypt(obj, this.s.pass), count: out.count };
   }
 
@@ -128,9 +131,22 @@ class StockSync {
     let g;
     try { g = await this._req('GET', `/gists/${this.s.gistId}`, null, this.s.token); } catch (e) { return; }
     const waiting = [];
+    const billErrors = [];
     const remove = {};
     let imported = false;
     for (const [name, f] of Object.entries(g.files || {})) {
+      if (/^bill-[\w-]+\.json$/.test(name) && f && !f.truncated) {
+        let b = null;
+        try {
+          b = await StockCrypto.decrypt(f.content, this.s.pass);
+          const r = this.service.createSaleFromPhone(b);
+          remove[name] = null;
+          if (r.status === 'created') imported = true;
+        } catch (e) {
+          billErrors.push({ name, id: b && b.id, error: e.message, customer: b && b.cn ? b.cn : 'Walk-in', total: b && b.lines ? b.lines.reduce((s, l) => s + (Number(l.q) || 0) * (Number(l.pr) || 0), 0) : 0 });
+        }
+        continue;
+      }
       if (!/^maal-[\w-]+\.json$/.test(name) || !f || f.truncated) continue;
       try {
         const batch = await StockCrypto.decrypt(f.content, this.s.pass);
@@ -141,10 +157,18 @@ class StockSync {
       } catch (e) { this.log(`phone list ${name}: ${e.message}`); }
     }
     this.waiting = waiting;
+    this.billErrors = billErrors;
     if (Object.keys(remove).length) {
       try { await this._req('PATCH', `/gists/${this.s.gistId}`, { files: remove }, this.s.token); } catch (e) { /* removed next time */ }
     }
     if (imported) await this.push({ force: true });
+  }
+  /** Remove a phone bill that cannot be made (the owner will write it again by hand if needed). */
+  async dismissBill(name) {
+    if (!/^bill-[\w-]+\.json$/.test(name)) throw new Error('Not a phone bill');
+    await this._req('PATCH', `/gists/${this.s.gistId}`, { files: { [name]: null } }, this.s.token);
+    this.billErrors = this.billErrors.filter((b) => b.name !== name);
+    return this.status();
   }
   waitingList() { return this.waiting.map((w) => ({ id: w.id, date: w.date, supplier: w.supplier, lines: w.lines, text: w.text })); }
 

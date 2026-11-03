@@ -270,7 +270,7 @@ App.pages.products = {
       const value = rows.reduce((s, p) => s + (p.stock > 0 ? p.stock * p.cost_price : 0), 0);
       el('sub').textContent = `${rows.length} product${rows.length === 1 ? '' : 's'} · stock value ${money(value)}`;
       el('rows').innerHTML = rows.length ? rows.map((p) => `<tr data-id="${p.id}">
-        <td class="muted">${esc(p.code || '')}</td><td><b>${esc(p.name)}</b></td><td class="muted">${esc(p.category || '')}</td>
+        <td class="muted">${esc(p.code || '')}</td><td>${nameWithAvatar(p.name)}</td><td class="muted">${esc(p.category || '')}</td>
         <td class="r num">${qty(p.cost_price)}</td><td class="r num">${qty(p.sale_price)}</td>
         <td class="r">${stockBadge(p)} <span class="muted small">${esc(p.unit)}</span></td>
         <td class="r num">${p.stock > 0 ? qty(p.stock * p.cost_price) : '–'}</td>

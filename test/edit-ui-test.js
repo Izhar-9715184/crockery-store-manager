@@ -110,6 +110,24 @@ fs.mkdirSync(shots, { recursive: true });
   assert.equal(svc.listProducts({})[0].stock, 9);
   await page.waitForSelector('.modal .edited-tag');
 
+  // 4) ledger: delete a wrong entry, and delete a bill from the ledger
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => document.querySelectorAll('.overlay').forEach((o) => o.remove()));
+  await nav('Customers');
+  await page.click('button[data-a=ledger]');
+  await page.waitForSelector('.modal .edit-link.del[data-del]');
+  const before = svc.getCustomer(ali.id).balance;
+  await page.click('.modal .edit-link.del[data-del] >> nth=0');      // newest non-bill entry = the payment (300)
+  await page.click('.overlay:last-of-type footer button:has-text("Delete")');
+  await page.waitForFunction(() => document.body.textContent.includes('Entry deleted'));
+  assert.equal(svc.getCustomer(ali.id).balance, before + 300);
+  await shot('edit-4-after-delete');
+  await page.click('.modal .edit-link.del[data-delbill]');
+  await page.fill('.overlay:last-of-type input', 'wrong bill');
+  await page.click('.overlay:last-of-type footer button:has-text("Delete bill")');
+  await page.waitForFunction(() => document.body.textContent.includes('Bill deleted'));
+  assert.equal(svc.getSale(sale.id).status, 'cancelled');
+
   await browser.close();
   assert.deepEqual(errors, []);
   console.log('EDIT UI TEST OK  screenshots:', shots);

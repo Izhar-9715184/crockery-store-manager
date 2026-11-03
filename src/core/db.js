@@ -155,7 +155,12 @@ const MIGRATIONS = [
     at        TEXT NOT NULL DEFAULT (datetime('now','localtime'))
   );
   `,
-  // ---- v4, v5 ... add future changes here (never edit the ones above) ------
+  // ---- v4: bills written on the phone get a unique id, so one bill can never be created twice -------
+  `
+  ALTER TABLE sales ADD COLUMN phone_id TEXT;
+  CREATE UNIQUE INDEX idx_sales_phone_id ON sales(phone_id) WHERE phone_id IS NOT NULL;
+  `,
+  // ---- v5, v6 ... add future changes here (never edit the ones above) ------
 ];
 
 

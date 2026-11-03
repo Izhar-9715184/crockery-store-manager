@@ -344,6 +344,19 @@ function createService(store) {
       return store.get('SELECT * FROM products WHERE id=?', prod.id);
     });
 
+  /**
+   * Delete a wrongly entered payment / old balance / correction. (A bill is deleted by cancelling the bill,
+   * which also returns its stock.) The deleted entry is kept in the edit log.
+   */
+  S.deleteLedgerEntry = (id) =>
+    store.tx(() => {
+      const e = store.get('SELECT * FROM ledger WHERE id=?', id) || fail('Entry not found');
+      if (e.type === 'credit_sale' || e.type === 'sale_cancel') fail('This entry belongs to a bill. Delete the bill instead.');
+      store.run('DELETE FROM ledger WHERE id=?', id);
+      logEdit('ledger_deleted', id, e.type, { date: e.date, debit: e.debit, credit: e.credit, method: e.method, note: e.note }, {});
+      return S.getCustomer(e.customer_id);
+    });
+
   // ------------------------------------------------------------ sales
   /**
    * Validates a bill and works out its totals (shared by "new sale" and "edit sale").
@@ -420,10 +433,10 @@ function createService(store) {
       const invoice_no = `${settings.invoice_prefix || ''}${String(n).padStart(5, '0')}`;
       store.run(`UPDATE settings SET value=? WHERE key='next_invoice'`, String(n + 1));
       const sale = store.run(
-        `INSERT INTO sales(invoice_no,date,customer_id,subtotal,discount,total,paid,due,profit,method,note)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sales(invoice_no,date,customer_id,subtotal,discount,total,paid,due,profit,method,note,phone_id)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
         invoice_no, P.saleDate, P.customer ? P.customer.id : null, P.subtotal, P.discount, P.total, P.paid, P.due, P.profit,
-        P.method, P.note
+        P.method, P.note, input.phone_id ? String(input.phone_id) : null
       );
       writeSaleBody(sale.id, invoice_no, P);
       return S.getSale(sale.id);
@@ -757,14 +770,43 @@ function createService(store) {
     const r = S.applyPurchaseImport({ text, decisions: prev.lines.map((l) => ({ action: 'match', product_id: l.match.id })) });
     return { status: 'imported', id: prev.id, ...r };
   };
+  S.phoneBillIds = () => store.all('SELECT phone_id FROM sales WHERE phone_id IS NOT NULL ORDER BY id DESC LIMIT 300').map((r) => r.phone_id);
   S.importedBatchIds = () => store.all('SELECT id FROM purchase_imports ORDER BY imported_at DESC LIMIT 300').map((r) => r.id);
 
   S.listPurchaseImports = () => store.all('SELECT * FROM purchase_imports ORDER BY imported_at DESC LIMIT 50');
 
+  /**
+   * A bill written on the phone (customer chosen from the synced list, products from the synced stock).
+   * Same safety as a bill typed at the laptop: stock is checked, and the same phone bill can never be made twice.
+   */
+  S.createSaleFromPhone = (b) => {
+    if (!b || b.v !== 1 || typeof b.id !== 'string' || !/^[A-Za-z0-9_-]{4,64}$/.test(b.id)) fail('This is not a bill from the phone');
+    if (store.get('SELECT id FROM sales WHERE phone_id=?', b.id)) return { status: 'done', id: b.id };
+    if (!Array.isArray(b.lines) || !b.lines.length || b.lines.length > 200) fail('The bill has no items');
+    const items = b.lines.map((l, i) => {
+      let prod = l.p ? store.get('SELECT id FROM products WHERE id=? AND active=1', l.p) : null;
+      if (!prod && l.n) prod = store.get('SELECT id FROM products WHERE active=1 AND name = ? COLLATE NOCASE', clean(l.n));
+      if (!prod) fail(`Line ${i + 1}: product "${clean(l.n)}" was not found`);
+      return { product_id: prod.id, qty: l.q, price: l.pr };
+    });
+    let customer_id = null;
+    if (b.cid) {
+      if (!store.get('SELECT id FROM customers WHERE id=? AND active=1', b.cid)) fail(`Customer "${clean(b.cn)}" no longer exists`);
+      customer_id = b.cid;
+    }
+    const sale = S.createSale({ date: b.date, customer_id, items, discount: b.discount, paid: b.paid === undefined ? undefined : b.paid,
+      method: b.method, note: clean(b.note) ? `${clean(b.note)} (from phone)` : 'From phone', phone_id: b.id });
+    return { status: 'created', id: b.id, invoice_no: sale.invoice_no, total: sale.total, due: sale.due };
+  };
+
+  /** All customers (name, phone, udhar) for the phone's "New bill" screen. */
+  S.exportCustomersForPhone = (withBalance = true) =>
+    S.listCustomers({}).slice(0, 1500).map((c) => ({ i: c.id, n: c.name, p: c.phone || '', ...(withBalance ? { b: c.balance } : {}) }));
+
   /** Product names for the phone page's suggestion list. Returns one line of text. */
   S.exportProductsForPhone = () => {
-    const items = store.all('SELECT name, code, cost_price, sale_price, stock, unit FROM products WHERE active = 1 ORDER BY name COLLATE NOCASE')
-      .map((p) => ({ n: p.name, k: p.code || '', c: p.cost_price, s: p.sale_price, q: p.stock, u: p.unit || '' }));
+    const items = store.all('SELECT id, name, code, cost_price, sale_price, stock, unit FROM products WHERE active = 1 ORDER BY name COLLATE NOCASE')
+      .map((p) => ({ i: p.id, n: p.name, k: p.code || '', c: p.cost_price, s: p.sale_price, q: p.stock, u: p.unit || '' }));
     // "at" = the day this stock count was taken, so the phone can say how old the numbers are
     return { count: items.length, text: Packing.pack(PREFIX_PRODUCTS, { v: 1, at: dateStr(), items }) };
   };

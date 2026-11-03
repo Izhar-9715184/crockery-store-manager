@@ -149,7 +149,7 @@ function pagesServer() {
   {
     const StockCrypto = require('../docs/stockcrypto.js');
     const gid = 'b'.repeat(32), pass = 'k7m2p9x4qa';
-    let content = await StockCrypto.encrypt({ v: 1, at: '2026-10-28', ts: '2026-10-28T09:15:00', items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 33, u: 'pcs' }], cust: [{ n: 'Ali Khan', p: '0300 1234567', b: 5200, e: [{ d: '2026-10-20', t: 'credit_sale', db: 5200, cr: 0, n: 'Udhar on INV-00001' }] }, { n: 'Bilal', p: '', b: 800, e: [] }] }, pass);
+    let content = await StockCrypto.encrypt({ v: 1, at: '2026-10-28', ts: '2026-10-28T09:15:00', items: [{ i: 7, n: 'Tea Cup', k: '', c: 40, s: 70, q: 33, u: 'pcs' }], custAll: [{ i: 3, n: 'Ali Khan', p: '0300 1234567', b: 5200 }, { i: 4, n: 'Bilal', p: '', b: 800 }, { i: 5, n: 'Chaudhry', p: '', b: 0 }], cust: [{ n: 'Ali Khan', p: '0300 1234567', b: 5200, e: [{ d: '2026-10-20', t: 'credit_sale', db: 5200, cr: 0, n: 'Udhar on INV-00001' }] }, { n: 'Bilal', p: '', b: 800, e: [] }] }, pass);
     const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
     const uploads = [];
     await ctx2.route('https://api.github.com/gists/*', (r) => {
@@ -186,23 +186,53 @@ function pagesServer() {
     await p2.waitForTimeout(400);
     await p2.screenshot({ path: path.join(shots, 'p5-online.png') });
     // laptop sold some -> next refresh shows the new number
-    content = await StockCrypto.encrypt({ v: 1, ts: '2026-10-28T11:00:00', items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 30, u: 'pcs' }] }, pass);
+    content = await StockCrypto.encrypt({ v: 1, ts: '2026-10-28T11:00:00', items: [{ i: 7, n: 'Tea Cup', k: '', c: 40, s: 70, q: 30, u: 'pcs' }], custAll: [{ i: 3, n: 'Ali Khan', p: '0300 1234567', b: 5200 }, { i: 4, n: 'Bilal', p: '', b: 800 }] }, pass);
     await p2.reload(); await p2.waitForFunction(() => window.__maalReady === true);
     await p2.waitForFunction(() => { const d = JSON.parse(localStorage.getItem('crockery.maal.v1')); return d.products && d.products.items[0].q === 30; }, null, { timeout: 8000 });
+    // sell from the phone: choose a customer, add the product, send the bill online
+    await p2.click('[data-tab=bill]');
+    await p2.click('#b_cust');
+    await p2.fill('#cu_q', 'bil');
+    await p2.click('#cu_list [data-cid]');
+    assert.match(await p2.textContent('#b_custName'), /Bilal/);
+    await p2.fill('#b_q', 'tea');
+    await p2.click('#b_results [data-add]');
+    await p2.click('#b_lines [data-step="1"]');                          // qty 2
+    assert.match(await p2.textContent('#billBarAmt'), /140/);
+    await p2.fill('#b_paid', '40');
+    assert.match(await p2.textContent('#b_due'), /100/);
+    await p2.waitForTimeout(400);
+    await p2.screenshot({ path: path.join(shots, 'p7-bill.png') });
+    await p2.fill('#b_q', ''); await p2.click('#b_lines [data-step="1"]');
+    await p2.fill('#b_lines input.q', '99');                              // more than the 33 in stock -> refused
+    await p2.click('#billSend');
+    assert.match(await p2.textContent('#toast'), /Only 30/);
+    await p2.fill('#b_lines input.q', '2');
+    await p2.click('#billSend');
+    await p2.waitForSelector('#bs_share');
+    const billUp = uploads.find((u) => Object.keys(u.body.files)[0].startsWith('bill-'));
+    assert.ok(billUp, 'bill uploaded');
+    const billObj = await StockCrypto.decrypt(billUp.body.files[Object.keys(billUp.body.files)[0]].content, pass);
+    assert.equal(billObj.cid, 4); assert.equal(billObj.lines[0].p, 7); assert.equal(billObj.lines[0].q, 2); assert.equal(billObj.paid, 40);
+    await p2.click('#bs_new');
+    await p2.click('[data-tab=maal]');
+    await p2.fill('#name', 'Tea Cup');                                   // stock figure already counts the sold pieces
+    assert.match(await p2.textContent('#hint'), /stock 30 pcs − 2 sold from this phone/);
     // write a purchase and send it online
     await p2.fill('#name', 'Tea Cup'); await p2.fill('#qty', '12'); await p2.fill('#cost', '40'); await p2.click('#addBtn');
     await p2.click('#sendBtn');
     await p2.click('#s_online');
     await p2.waitForFunction(() => /Sent online/.test(document.querySelector('#toast').textContent));
-    assert.equal(uploads.length, 1);
-    assert.equal(uploads[0].auth, 'Bearer ghp_abcdefghijklmnopqrstuvwxyz0123');
-    const fname = Object.keys(uploads[0].body.files)[0];
+    const mu = uploads.filter((u) => Object.keys(u.body.files)[0].startsWith('maal-'));
+    assert.equal(mu.length, 1);
+    assert.equal(mu[0].auth, 'Bearer ghp_abcdefghijklmnopqrstuvwxyz0123');
+    const fname = Object.keys(mu[0].body.files)[0];
     assert.match(fname, /^maal-b-[\w-]+\.json$/);
-    const sent = await StockCrypto.decrypt(uploads[0].body.files[fname].content, pass);
+    const sent = await StockCrypto.decrypt(mu[0].body.files[fname].content, pass);
     assert.equal(sent.lines[0].q, 12);
-    assert.ok(!uploads[0].body.files[fname].content.includes('Tea Cup'), 'locked');
+    assert.ok(!mu[0].body.files[fname].content.includes('Tea Cup'), 'locked');
     await p2.fill('#name', 'Tea Cup');
-    assert.match(await p2.textContent('#hint'), /\+ 12 bought/);          // number is right at once, before the laptop counts it
+    assert.match(await p2.textContent('#hint'), /\+ 10 bought/);   // (purchase and the 2 sold are both shown as pending)          // number is right at once, before the laptop counts it
     // once the laptop lists it as imported, the "+12" disappears
     content = await StockCrypto.encrypt({ v: 1, ts: '2026-10-28T12:00:00', imported: [sent.id], items: [{ n: 'Tea Cup', k: '', c: 40, s: 70, q: 42, u: 'pcs' }] }, pass);
     await p2.click('#menuBtn'); await p2.click('#m_online'); await p2.click('#o_now');

@@ -29,9 +29,9 @@
   function load() {
     try {
       const o = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null, udhar: o.udhar || null };
+      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null, udhar: o.udhar || null, custAll: Array.isArray(o.custAll) ? o.custAll : [], bills: Array.isArray(o.bills) ? o.bills : [], cart: o.cart || null };
     } catch (e) { /* first run or storage blocked */ }
-    return { batches: [], currentId: null, suppliers: [], products: null, sync: null, udhar: null };
+    return { batches: [], currentId: null, suppliers: [], products: null, sync: null, udhar: null, custAll: [], bills: [], cart: null };
   }
   let data = load();
   function save() {
@@ -98,15 +98,21 @@
   // lists sent online but not yet counted by the laptop: show them as "coming" so the number is right at once
   function comingFor(p) {
     const done = new Set((data.products && data.products.imported) || []);
+    const billed = new Set((data.products && data.products.billsDone) || []);
     const n = norm(p.n);
     let q = 0;
     for (const b of data.batches) {
       if (!b.online || done.has(b.id)) continue;
       for (const l of b.lines) if (norm(l.n) === n) q += l.q;
     }
+    for (const bl of data.bills) {                                   // bills written on this phone, not yet counted by the laptop
+      if (billed.has(bl.id)) continue;
+      for (const l of bl.lines) if ((l.p && p.i && l.p === p.i) || norm(l.n) === n) q -= l.q;
+    }
     return q;
   }
-  const stockText = (p) => (p.q === undefined ? 'stock unknown' : (p.q + comingFor(p)) <= 0 ? 'stock 0 (out)' : `stock ${fmt(p.q)}${p.u ? ' ' + p.u : ''}${comingFor(p) ? ` + ${fmt(comingFor(p))} bought, on its way to the laptop` : ''}`);
+  const comingText = (c) => (c > 0 ? `+ ${fmt(c)} bought, on its way to the laptop` : `− ${fmt(-c)} sold from this phone`);
+  const stockText = (p) => (p.q === undefined ? 'stock unknown' : (p.q + comingFor(p)) <= 0 ? 'stock 0 (out)' : `stock ${fmt(p.q)}${p.u ? ' ' + p.u : ''}${comingFor(p) ? ' ' + comingText(comingFor(p)) : ''}`);
   const stockAge = () => {
     const pr = data.products;
     if (!pr) return '';
@@ -140,13 +146,15 @@
       const obj = await self.StockCrypto.decrypt(text, data.sync.pass);
       if (!obj || !Array.isArray(obj.items)) throw new Error('The online copy is not a stock list');
       const items = obj.items.slice(0, 5000).map((x) => {
-        const o = { n: String(x.n).slice(0, 200), k: String(x.k || '').slice(0, 60), c: Number(x.c) || 0, s: Number(x.s) || 0 };
+        const o = { i: Number(x.i) || 0, n: String(x.n).slice(0, 200), k: String(x.k || '').slice(0, 60), c: Number(x.c) || 0, s: Number(x.s) || 0 };
         if (x.q !== undefined && Number.isFinite(Number(x.q))) { o.q = Number(x.q); o.u = String(x.u || '').slice(0, 20); }
         return o;
       });
-      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null, shop: obj.shop || '', imported: Array.isArray(obj.imported) ? obj.imported.slice(0, 400) : [] };
+      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null, shop: obj.shop || '', imported: Array.isArray(obj.imported) ? obj.imported.slice(0, 400) : [], billsDone: Array.isArray(obj.billsDone) ? obj.billsDone.slice(0, 400) : [] };
+      data.custAll = Array.isArray(obj.custAll) ? obj.custAll.slice(0, 1500).map((c) => ({ i: Number(c.i), n: String(c.n).slice(0, 120), p: String(c.p || '').slice(0, 30), b: c.b === undefined ? null : Number(c.b) })) : [];
       data.udhar = Array.isArray(obj.cust) ? { list: obj.cust.slice(0, 400), ts: obj.ts || null } : null;
-      save(); renderFields(); updateHint(); renderStock(); renderUdhar();
+      data.bills = data.bills.filter((bl) => bl.status === 'pending' || !(data.products.billsDone || []).includes(bl.id) || Date.now() - bl.at < 3 * 86400000).slice(0, 30);
+      save(); renderFields(); updateHint(); renderStock(); renderUdhar(); renderBill();
       syncMsg = `Updated online · ${items.length} products`;
       return true;
     } catch (e) {
@@ -417,20 +425,154 @@
   }
 
   // ------------------------------------------------------------------ tabs: Maal / Stock / Udhar
-  const TITLES = { maal: 'Maal entry', stock: 'Stock', udhar: 'Udhar' };
+  const TITLES = { maal: 'Maal entry', bill: 'New bill', stock: 'Stock', udhar: 'Udhar' };
   let tab = 'maal';
   let stockFilter = 'all';
   function setTab(t) {
     tab = t;
     document.body.dataset.tab = t;
-    try { document.querySelector('meta[name=theme-color]').content = { maal: '#4f2bd6', stock: '#055e4d', udhar: '#7c1236' }[t]; } catch (e) { /* ignore */ }
-    for (const v of ['maal', 'stock', 'udhar']) $('#v-' + v).hidden = v !== t;
+    try { document.querySelector('meta[name=theme-color]').content = { maal: '#4f2bd6', bill: '#1d4ed8', stock: '#055e4d', udhar: '#7c1236' }[t]; } catch (e) { /* ignore */ }
+    for (const v of ['maal', 'bill', 'stock', 'udhar']) $('#v-' + v).hidden = v !== t;
     document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x.dataset.tab === t));
     $('#pageTitle').textContent = TITLES[t];
     $('#bar').hidden = t !== 'maal';
+    $('#billBar').hidden = t !== 'bill';
+    if (t === 'bill') renderBill();
     if (t === 'stock') renderStock();
     if (t === 'udhar') renderUdhar();
     window.scrollTo(0, 0);
+  }
+  // ------------------------------------------------------------------ BILL: sell from the phone
+  const newCart = () => ({ cid: 0, cn: '', lines: [], disc: '', paid: '', method: 'cash', note: '', date: ymd(new Date()) });
+  const cart = () => (data.cart || (data.cart = newCart()));
+  const cartCalc = () => {
+    const c = cart();
+    const sub = c.lines.reduce((s, l) => s + (num(String(l.q)) || 0) * (num(String(l.pr)) || 0), 0);
+    const disc = Math.min(sub, Math.max(0, num(String(c.disc || 0)) || 0));
+    const total = Math.max(0, sub - disc);
+    const paid = c.paid === '' ? total : Math.min(total, Math.max(0, num(String(c.paid)) || 0));
+    return { sub, disc, total, paid, due: Math.max(0, total - paid) };
+  };
+  const stockOf = (l) => {
+    const it = ((data.products && data.products.items) || []).find((p) => (l.p && p.i === l.p) || norm(p.n) === norm(l.n));
+    return it && it.q !== undefined ? it.q + comingFor(it) : null;
+  };
+  function renderBill() {
+    const c = cart();
+    const items = (data.products && data.products.items) || [];
+    // customer chip
+    $('#b_custName').textContent = c.cid ? c.cn : 'Walk-in customer';
+    $('#b_custAv').textContent = (c.cid ? c.cn : 'W').trim().charAt(0).toUpperCase();
+    $('#b_custAv').style.background = grad(c.cid ? c.cn : 'Walk-in');
+    const cu = (data.custAll || []).find((x) => x.i === c.cid);
+    $('#b_custSub').textContent = c.cid ? (cu && cu.b > 0 ? `Already owes Rs ${fmt(cu.b)}` : (cu && cu.p) || 'Tap to change') : 'Tap to choose a customer';
+    // search results
+    const q = norm($('#b_q').value);
+    const res = items.filter((p) => !q || norm(p.n).includes(q) || norm(p.k).includes(q)).slice(0, q ? 12 : 8);
+    $('#b_results').innerHTML = items.length ? res.map((p) => { const e = p.q === undefined ? null : p.q + comingFor(p); return `<button class="bres" data-add="${esc(p.n)}">${avatar(p.n)}<span class="bn"><b>${esc(p.n)}</b><small>Rs ${fmt(p.s)} · ${e === null ? 'stock ?' : e <= 0 ? 'out of stock' : fmt(e) + ' ' + esc(p.u || 'pcs')}</small></span><span class="plus">+</span></button>`; }).join('') || '<div class="muted small" style="padding:8px 2px">No product found.</div>'
+      : `<div class="empty">${CUP}<b>No products on this phone</b><br>Connect the laptop first (⋮ → Online stock).</div>`;
+    // lines
+    $('#b_count').textContent = c.lines.length ? `${c.lines.length} item${c.lines.length === 1 ? '' : 's'}` : '';
+    $('#b_lines').innerHTML = c.lines.length ? c.lines.map((l, i) => { const st = stockOf(l); const over = st !== null && (num(String(l.q)) || 0) > st;
+      return `<div class="line bl" data-bi="${i}">${avatar(l.n)}<div class="main"><div class="nm">${esc(l.n)}</div>
+        <div class="calc">${over ? `<span class="warn">only ${fmt(Math.max(0, st))} in stock</span>` : `Rs <input class="mini" data-f="pr" inputmode="decimal" value="${esc(l.pr)}">`}</div></div>
+        <div class="stepper"><button data-step="-1" aria-label="Less">−</button><input class="mini q" data-f="q" inputmode="decimal" value="${esc(l.q)}"><button data-step="1" aria-label="More">+</button></div>
+        <button class="x" data-bdel="${i}" aria-label="Remove">×</button></div>`; }).join('')
+      : `<div class="empty">${CUP}<b>No items yet</b><br>Tap a product above to add it.</div>`;
+    $('#b_pay').hidden = !c.lines.length;
+    const k = cartCalc();
+    $('#b_disc').value = c.disc; $('#b_paid').value = c.paid; $('#b_method').value = c.method; $('#b_date').value = c.date; $('#b_note').value = c.note;
+    const sums = () => { const kk = cartCalc(); $('#b_total').textContent = money(kk.total); $('#b_due').textContent = money(kk.due); $('#b_due').className = kk.due > 0 ? 'red' : ''; $('#billHeroAmt').textContent = money(kk.total); $('#billBarAmt').textContent = money(kk.total);
+      const n = cart().lines.length; $('#billHeroSub').textContent = n ? `${n} item${n === 1 ? '' : 's'}${kk.due > 0 ? ' · udhar ' + money(kk.due) : ''}${cart().cid ? ' · ' + cart().cn : ''}` : 'Choose a customer and add items'; $('#billBarSub').textContent = n ? `${n} item${n === 1 ? '' : 's'}${kk.due > 0 ? ' · udhar ' + money(kk.due) : ' · paid in full'}` : 'No items yet'; $('#billSend').disabled = !n; };
+    sums();
+    // recent bills
+    const rec = data.bills.slice(0, 6);
+    $('#b_recent').hidden = !rec.length;
+    const billed = new Set((data.products && data.products.billsDone) || []);
+    $('#b_recentList').innerHTML = rec.map((bl) => `<div class="item-row" data-rb="${esc(bl.id)}" style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><b>${esc(bl.cn || 'Walk-in')}</b><div class="muted small">${esc(nice(bl.date))} · Rs ${fmt(bl.total)}</div></div>
+      <span class="chip ${billed.has(bl.id) ? 'sent' : ''}">${billed.has(bl.id) ? 'Billed ✓' : bl.status === 'pending' ? 'Waiting for internet' : 'Sent'}</span></div>`).join('');
+    return sums;
+  }
+  function addToBill(name) {
+    const p = ((data.products && data.products.items) || []).find((x) => x.n === name);
+    if (!p) return;
+    const c = cart();
+    const line = c.lines.find((l) => (p.i && l.p === p.i) || norm(l.n) === norm(p.n));
+    if (line) line.q = (num(String(line.q)) || 0) + 1; else c.lines.push({ p: p.i || 0, n: p.n, q: 1, pr: p.s });
+    try { navigator.vibrate && navigator.vibrate(10); } catch (e) { /* ignore */ }
+    save(); renderBill();
+  }
+  function pickCustomer() {
+    const all = data.custAll || [];
+    const s = sheet('Customer', `<input id="cu_q" type="search" placeholder="Search customer…" autocomplete="off" style="margin-bottom:10px">
+      <button class="menu-item" data-walk>🚶 Walk-in customer (no name)</button><div id="cu_list"></div>`);
+    const draw = () => {
+      const q = norm($('#cu_q', s.el).value);
+      $('#cu_list', s.el).innerHTML = all.filter((x) => !q || norm(x.n).includes(q) || String(x.p).includes(q)).slice(0, 60).map((x) => `<button class="pcard ccard" data-cid="${x.i}"><div class="top2"><div class="who">${avatar(x.n)}<div style="min-width:0"><div class="nm">${esc(x.n)}</div><div class="meta">${esc(x.p || 'no phone')}</div></div></div>${x.b > 0 ? `<div class="bal">${fmt(x.b)}<small>udhar</small></div>` : ''}</div></button>`).join('')
+        || (all.length ? '<div class="empty">Nobody found.</div>' : '<div class="empty">No customers on this phone yet. Connect the laptop (⋮ → Online stock).</div>');
+    };
+    $('#cu_q', s.el).addEventListener('input', draw);
+    s.el.addEventListener('click', (e) => {
+      const w = e.target.closest('[data-walk]');
+      const b = e.target.closest('[data-cid]');
+      if (w) { cart().cid = 0; cart().cn = ''; }
+      else if (b) { const x = all.find((y) => y.i === Number(b.dataset.cid)); cart().cid = x.i; cart().cn = x.n; }
+      else return;
+      save(); s.close(); renderBill();
+    });
+    draw();
+  }
+  function billText(bl) {
+    const lines = bl.lines.map((l, i) => `${i + 1}. ${l.n} — ${fmt(l.q)} x ${fmt(l.pr)} = ${fmt(l.q * l.pr)}`);
+    const shop = (data.products && data.products.shop) || '';
+    return [shop ? `*${shop}*` : null, `Bill — ${nice(bl.date)}`, bl.cn ? `Customer: ${bl.cn}` : null, ...lines, `Total: Rs ${fmt(bl.total)}`, `Received: Rs ${fmt(bl.paidAmt)}`, bl.due > 0 ? `Udhar: Rs ${fmt(bl.due)}` : 'Paid in full', 'Thank you!'].filter(Boolean).join('\n');
+  }
+  async function uploadBill(bl) {
+    if (!data.sync || !data.sync.key) throw new Error('This phone is not connected for sending. Open the link from the laptop again.');
+    if (!navigator.onLine) throw new Error('offline');
+    const payload = { v: 1, id: bl.id, date: bl.date, cid: bl.cid || 0, cn: bl.cn || '', discount: bl.disc, paid: bl.paid, method: bl.method, note: bl.note,
+      lines: bl.lines.map((l) => ({ p: l.p, n: l.n, q: l.q, pr: l.pr })) };
+    const content = await self.StockCrypto.encrypt(payload, data.sync.pass);
+    const r = await fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: { ['bill-' + bl.id + '.json']: { content } } }) });
+    if (!r.ok) throw new Error(r.status === 401 ? 'The key in the link is not accepted. Open a fresh link from the laptop.' : `Could not send (${r.status}). Try again.`);
+    bl.status = 'sent';
+    save();
+  }
+  async function sendPending() {
+    for (const bl of data.bills.filter((x) => x.status === 'pending')) { try { await uploadBill(bl); } catch (e) { break; } }
+    renderBill(); renderStock();
+  }
+  async function sendBill() {
+    const c = cart();
+    const k = cartCalc();
+    if (!c.lines.length) return toast('Add at least one item', true);
+    for (const l of c.lines) {
+      const q = num(String(l.q)); const pr = num(String(l.pr));
+      if (!(q > 0)) return toast(`Quantity of ${l.n} must be more than 0`, true);
+      if (!(pr >= 0)) return toast(`Price of ${l.n} is not a number`, true);
+      const st = stockOf(l);
+      if (st !== null && q > st) return toast(`Only ${fmt(Math.max(0, st))} of ${l.n} in stock`, true);
+    }
+    if (k.due > 0 && !c.cid) return toast('Choose a customer for an udhar bill', true);
+    const bl = { id: 'bl-' + rid().slice(2), at: Date.now(), date: c.date || ymd(new Date()), cid: c.cid, cn: c.cn, disc: k.disc, paid: k.paid, paidAmt: k.paid, due: k.due, total: k.total,
+      method: c.method, note: c.note.trim(), status: 'pending',
+      lines: c.lines.map((l) => ({ p: l.p, n: l.n, q: num(String(l.q)), pr: num(String(l.pr)) })) };
+    data.bills.unshift(bl);
+    data.cart = null;
+    save();
+    let msg = 'Saved. It will be sent when the phone has internet.';
+    try { await uploadBill(bl); msg = 'Sent. The laptop makes the bill by itself.'; } catch (e) { if (e.message !== 'offline') { msg = e.message; } }
+    renderBill(); renderStock();
+    const s = sheet('Bill ready', `<div class="item-row"><b>${esc(bl.cn || 'Walk-in customer')}</b><div class="muted small">${esc(nice(bl.date))}</div>
+      <div style="font-size:30px;font-weight:800;margin-top:6px">${money(bl.total)}</div>${bl.due > 0 ? `<div class="red small">Udhar ${money(bl.due)}</div>` : '<div class="small" style="color:var(--good)">Paid in full</div>'}</div>
+      <p class="muted small">${esc(msg)}</p>
+      <button class="btn primary block big" id="bs_share">Share bill (WhatsApp)</button><button class="btn block" id="bs_new">New bill</button>`);
+    $('#bs_share', s.el).addEventListener('click', async () => {
+      const text = billText(bl);
+      try { if (navigator.share) await navigator.share({ title: 'Bill', text }); else { await navigator.clipboard.writeText(text); toast('Bill copied'); } } catch (e) { /* cancelled */ }
+    });
+    $('#bs_new', s.el).addEventListener('click', () => s.close());
   }
   const levelOf = (q) => (q <= 0 ? 'out' : q <= 5 ? 'low' : 'ok');
 
@@ -452,7 +594,7 @@
       const c = comingFor(p);
       const lv = e === null ? 'ok' : levelOf(e);
       return `<button class="pcard lvl-${lv}" data-n="${esc(p.n)}"><div class="top2"><div class="who">${avatar(p.n)}<div style="min-width:0"><div class="nm">${esc(p.n)}</div>
-        <div class="meta">cost ${fmt(p.c)} · sale ${fmt(p.s)}</div><span class="pill">${lv === 'out' ? 'Out of stock' : lv === 'low' ? 'Running low' : 'In stock'}</span>${c ? `<div class="coming">+ ${fmt(c)} just bought</div>` : ''}</div></div>
+        <div class="meta">cost ${fmt(p.c)} · sale ${fmt(p.s)}</div><span class="pill">${lv === 'out' ? 'Out of stock' : lv === 'low' ? 'Running low' : 'In stock'}</span>${c ? `<div class="coming${c < 0 ? ' neg' : ''}">${c > 0 ? '+ ' + fmt(c) + ' just bought' : '− ' + fmt(-c) + ' sold from phone'}</div>` : ''}</div></div>
         <div><div class="qn">${e === null ? '–' : fmt(e)}</div><div class="qu">${esc(p.u || 'pcs')}</div></div></div>
         <div class="meter"><i style="width:${e === null ? 0 : Math.max(e > 0 ? 4 : 0, Math.min(100, (e / max) * 100))}%"></i></div></button>`;
     }).join('') || '<div class="empty">Nothing found.</div>';
@@ -573,12 +715,34 @@
     });
     $('#sendBtn').addEventListener('click', () => openSend(ensureCurrent()));
     $('#menuBtn').addEventListener('click', openMenu);
+    $('#b_cust').addEventListener('click', pickCustomer);
+    $('#b_q').addEventListener('input', renderBill);
+    $('#b_results').addEventListener('click', (e) => { const b = e.target.closest('[data-add]'); if (b) addToBill(b.dataset.add); });
+    $('#b_lines').addEventListener('click', (e) => {
+      const row = e.target.closest('[data-bi]'); if (!row) return;
+      const l = cart().lines[Number(row.dataset.bi)];
+      const st = e.target.closest('[data-step]');
+      if (st) { l.q = Math.max(0, (num(String(l.q)) || 0) + Number(st.dataset.step)); if (l.q === 0) cart().lines.splice(Number(row.dataset.bi), 1); save(); renderBill(); return; }
+      const d = e.target.closest('[data-bdel]'); if (d) { cart().lines.splice(Number(row.dataset.bi), 1); save(); renderBill(); }
+    });
+    $('#b_lines').addEventListener('input', (e) => { const row = e.target.closest('[data-bi]'); if (!row || !e.target.dataset.f) return; cart().lines[Number(row.dataset.bi)][e.target.dataset.f] = e.target.value; save(); const k = cartCalc();
+      $('#b_total').textContent = money(k.total); $('#b_due').textContent = money(k.due); $('#billHeroAmt').textContent = money(k.total); $('#billBarAmt').textContent = money(k.total); });
+    for (const [id, key] of [['b_disc', 'disc'], ['b_paid', 'paid'], ['b_note', 'note']]) $('#' + id).addEventListener('input', () => { cart()[key] = $('#' + id).value; save(); const k = cartCalc(); $('#b_total').textContent = money(k.total); $('#b_due').textContent = money(k.due); $('#billHeroAmt').textContent = money(k.total); $('#billBarAmt').textContent = money(k.total); $('#billBarSub').textContent = k.due > 0 ? `udhar ${money(k.due)}` : 'paid in full'; });
+    $('#b_method').addEventListener('change', () => { cart().method = $('#b_method').value; save(); });
+    $('#b_date').addEventListener('change', () => { cart().date = $('#b_date').value || ymd(new Date()); save(); });
+    $('#b_full').addEventListener('click', () => { cart().paid = ''; save(); renderBill(); });
+    $('#b_udhar').addEventListener('click', () => { cart().paid = '0'; save(); renderBill(); });
+    $('#billSend').addEventListener('click', sendBill);
+    $('#b_recentList').addEventListener('click', (e) => { const r = e.target.closest('[data-rb]'); if (!r) return; const bl = data.bills.find((x) => x.id === r.dataset.rb); if (!bl) return;
+      const s = sheet('Bill', `<pre>${esc(billText(bl))}</pre><button class="btn primary block" id="rb_share">Share</button>`);
+      $('#rb_share', s.el).addEventListener('click', async () => { try { if (navigator.share) await navigator.share({ title: 'Bill', text: billText(bl) }); else { await navigator.clipboard.writeText(billText(bl)); toast('Copied'); } } catch (_) { /* cancelled */ } }); });
+    window.addEventListener('online', sendPending);
     $('#k_q').addEventListener('input', renderStock);
     $('#u_q').addEventListener('input', renderUdhar);
     $('#k_seg').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; stockFilter = b.dataset.f; document.querySelectorAll('#k_seg .chip').forEach((x) => x.classList.toggle('on', x === b)); renderStock(); });
     $('#k_list').addEventListener('click', (e) => { const r = e.target.closest('[data-n]'); if (!r) return; setTab('maal'); $('#name').value = r.dataset.n; updateHint(); $('#qty').focus(); });
     $('#u_list').addEventListener('click', (e) => { const r = e.target.closest('[data-c]'); if (r && data.udhar) openCustomer(data.udhar.list[Number(r.dataset.c)]); });
-    $('#tabs').addEventListener('click', (e) => { const t = e.target.closest('[data-tab]'); if (t) setTab(t.dataset.tab); });
+    $('#tabs').addEventListener('click', (e) => { if (e.target.closest('#moreTab')) return openMenu(); const t = e.target.closest('[data-tab]'); if (t) setTab(t.dataset.tab); });
     window.addEventListener('online', setStatus);
     window.addEventListener('offline', setStatus);
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
@@ -589,10 +753,11 @@
         .then(() => { offlineReady = true; setStatus(); })
         .catch(() => { /* works online only */ });
     }
-    renderStock(); renderUdhar();
+    renderStock(); renderUdhar(); renderBill();
     const linked = readSyncLink();
     if (data.sync) fetchOnline(linked).then((ok) => { if (linked && ok) toast('Connected. Stock loaded.'); });
     window.addEventListener('online', () => { if (data.sync) fetchOnline(false); });
+    if (data.bills.some((x) => x.status === 'pending')) sendPending();
     window.__maalReady = true;
   }
   init();

@@ -62,6 +62,39 @@
       </section>
     </div>
 
+    <!-- ================= BILL (sell from the phone) ================= -->
+    <div class="view" id="v-bill" hidden>
+      <section class="hero tile">
+        <div class="hero-main"><div class="hero-label">New bill</div><div class="hero-num" id="billHeroAmt">Rs 0</div><div class="hero-sub" id="billHeroSub">Choose a customer and add items</div></div>
+      </section>
+      <section class="panel">
+        <button class="custpick" id="b_cust" type="button"><span class="av" id="b_custAv">W</span><span class="cp-txt"><b id="b_custName">Walk-in customer</b><small id="b_custSub">Tap to choose a customer</small></span><span class="cp-go">›</span></button>
+      </section>
+      <section class="panel">
+        <h2>Add items</h2>
+        <input id="b_q" type="search" placeholder="Search product…" autocomplete="off">
+        <div id="b_results" class="b-results"></div>
+      </section>
+      <section>
+        <div class="list-head"><h2>Bill items</h2><span id="b_count" class="muted"></span></div>
+        <div id="b_lines"></div>
+      </section>
+      <section class="panel" id="b_pay" hidden>
+        <div class="row2">
+          <label class="f"><span>Discount</span><input id="b_disc" type="text" inputmode="decimal" placeholder="0"></label>
+          <label class="f"><span>Received now</span><input id="b_paid" type="text" inputmode="decimal" placeholder="full"></label>
+        </div>
+        <div class="qchips"><button type="button" id="b_full">Full payment</button><button type="button" id="b_udhar">All udhar</button></div>
+        <div class="row2">
+          <label class="f"><span>Paid by</span><select id="b_method"><option value="cash">Cash</option><option value="bank">Bank</option><option value="wallet">EasyPaisa / JazzCash</option><option value="cheque">Cheque</option></select></label>
+          <label class="f"><span>Date</span><input id="b_date" type="date"></label>
+        </div>
+        <label class="f"><span>Note (optional)</span><input id="b_note" type="text" autocomplete="off"></label>
+        <div class="b-sum"><div><span>Total</span><b id="b_total">Rs 0</b></div><div><span>Udhar</span><b id="b_due">Rs 0</b></div></div>
+      </section>
+      <section class="panel" id="b_recent" hidden><h2>Bills sent from this phone</h2><div id="b_recentList"></div></section>
+    </div>
+
     <!-- ================= STOCK ================= -->
     <div class="view" id="v-stock" hidden>
       <section class="hero tile">
@@ -82,6 +115,11 @@
     </div>
   </main>
 
+  <footer class="bar" id="billBar" hidden>
+    <div><div id="billBarAmt" class="total">Rs 0</div><div id="billBarSub" class="muted small">No items yet</div></div>
+    <button class="btn primary big" id="billSend">Send bill</button>
+  </footer>
+
   <footer class="bar" id="bar">
     <div><div id="totalAmt" class="total">Rs 0</div><div id="totalSub" class="muted small">No items yet</div></div>
     <button class="btn primary big" id="sendBtn">Send to laptop</button>
@@ -90,7 +128,9 @@
   <nav class="tabs" id="tabs" aria-label="Sections">
     <button class="tab on" data-tab="maal"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg><span>Maal</span></button>
     <button class="tab" data-tab="stock"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/></svg><span>Stock</span></button>
+    <button class="tab fab" data-tab="bill"><span class="fabdot"><svg viewBox="0 0 24 24"><path d="M6 2h12a1 1 0 0 1 1 1v18l-3-2-3 2-3-2-3 2V3a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6"/></svg></span><span class="l">Bill</span></button>
     <button class="tab" data-tab="udhar"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M17 8.5h4.5M19.2 6.3v4.4"/></svg><span>Udhar</span></button>
+    <button class="tab" id="moreTab" type="button"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>Aur</span></button>
   </nav>
 
   <div id="toast" class="toast" hidden></div>

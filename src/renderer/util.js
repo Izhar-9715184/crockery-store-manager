@@ -326,12 +326,12 @@ async function showInvoice(saleId, { onChange } = {}) {
           App.go('sale');
         },
       }, {
-        label: 'Cancel this sale', kind: 'danger', close: false,
+        label: 'Delete bill', kind: 'danger', close: false,
         onClick: async () => {
-          const reason = await askText({ title: 'Cancel sale', label: 'Why is this sale being cancelled?', okLabel: 'Cancel sale' });
+          const reason = await askText({ title: 'Delete bill', label: 'Why is this bill being deleted?', okLabel: 'Delete bill' });
           if (!reason) return false;
           await rpc('cancelSale', sale.id, reason);
-          toast('Sale cancelled. Stock and udhar were restored.', 'ok');
+          toast('Bill deleted. Stock and udhar were restored.', 'ok');
           m.close();
           if (onChange) onChange();
         },
@@ -349,6 +349,16 @@ async function showInvoice(saleId, { onChange } = {}) {
   });
   draw();
   return m;
+}
+
+const AV_GRADS = [['#5b34e6', '#c026d3'], ['#0b8f78', '#2fd6a8'], ['#d8285c', '#ff8a5b'], ['#2563eb', '#22d3ee'], ['#e08a00', '#ffcf4d'], ['#7c3aed', '#f472b6']];
+/** Coloured initial badge (same look as on the phone) + the name. */
+function nameWithAvatar(name) {
+  let hsh = 0;
+  for (const ch of String(name)) hsh = (hsh * 31 + ch.charCodeAt(0)) >>> 0;
+  const g = AV_GRADS[hsh % AV_GRADS.length];
+  const m = String(name).trim().match(/[\p{L}\p{N}]/u);
+  return `<span class="avc"><span class="av" style="background:linear-gradient(135deg,${g[0]},${g[1]})">${esc((m ? m[0] : '?').toUpperCase())}</span><b>${esc(name)}</b></span>`;
 }
 
 const ICONS = {
