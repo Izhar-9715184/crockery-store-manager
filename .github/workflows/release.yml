@@ -10,6 +10,11 @@ on:
 permissions:
   contents: write
 
+# the same tag built twice at once (tag pushed again) must not fight over the release files
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   create-release:
     runs-on: ubuntu-latest
@@ -92,7 +97,13 @@ jobs:
         run: |
           TAG="$GITHUB_REF_NAME"
           VER="${TAG#v}"
-          gh release upload "$TAG" \
-            "dist/${{ matrix.name }}-$VER.exe" \
-            "dist/${{ matrix.name }}-$VER.exe.blockmap" \
-            "dist/${{ matrix.channel }}.yml" --clobber
+          for f in "dist/${{ matrix.name }}-$VER.exe" "dist/${{ matrix.name }}-$VER.exe.blockmap" "dist/${{ matrix.channel }}.yml"; do
+            name="$(basename "$f")"
+            for try in 1 2 3 4; do
+              # remove an older copy of the same file first (left over from an earlier run of this tag), then upload
+              gh release delete-asset "$TAG" "$name" --yes 2>/dev/null || true
+              if gh release upload "$TAG" "$f" --clobber; then break; fi
+              echo "upload of $name failed (try $try), waiting..."; sleep 8
+              if [ "$try" = 4 ]; then exit 1; fi
+            done
+          done
