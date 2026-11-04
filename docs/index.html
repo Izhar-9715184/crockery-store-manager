@@ -37,6 +37,11 @@
           <label class="f"><span>Date</span><input id="date" type="date"></label>
         </div>
         <datalist id="suppliers"></datalist>
+        <div id="payBox" hidden>
+          <div class="seg2" id="paySeg" style="margin:12px 0 8px"><button type="button" class="chip on" data-m="karz">Karz</button><button type="button" class="chip" data-m="paid">Paid</button><button type="button" class="chip" data-m="part">Part paid</button></div>
+          <label class="f" id="paidWrap" hidden><span>Paid now (Rs)</span><input id="paidNow" type="text" inputmode="decimal" placeholder="0"></label>
+          <div class="muted small" id="payInfo"></div>
+        </div>
       </section>
 
       <section class="panel">
@@ -108,8 +113,9 @@
     <!-- ================= UDHAR ================= -->
     <div class="view" id="v-udhar" hidden>
       <section class="hero tile red">
-        <div class="hero-main"><div class="hero-label">Udhar pending</div><div class="hero-num" id="udharTotal">–</div><div class="hero-sub" id="udharSub">Not connected</div></div>
+        <div class="hero-main"><div class="hero-label" id="udharLabel">Udhar pending</div><div class="hero-num" id="udharTotal">–</div><div class="hero-sub" id="udharSub">Not connected</div></div>
       </section>
+      <div class="seg2" id="um_seg"><button type="button" class="chip on" data-m="udhar">Customer udhar</button><button type="button" class="chip" data-m="karz">Wholesale karz</button></div>
       <div class="searchbox"><input id="u_q" type="search" placeholder="Search customer…" autocomplete="off"></div>
       <div id="u_list"></div>
     </div>
@@ -138,6 +144,7 @@
 
   <script src="packing.js"></script>
   <script src="stockcrypto.js"></script>
+  <script src="receipt.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

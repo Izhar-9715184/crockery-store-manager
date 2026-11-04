@@ -29,9 +29,9 @@
   function load() {
     try {
       const o = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null, udhar: o.udhar || null, custAll: Array.isArray(o.custAll) ? o.custAll : [], bills: Array.isArray(o.bills) ? o.bills : [], cart: o.cart || null };
+      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null, udhar: o.udhar || null, karz: o.karz || null, sups: Array.isArray(o.sups) ? o.sups : [], custAll: Array.isArray(o.custAll) ? o.custAll : [], bills: Array.isArray(o.bills) ? o.bills : [], cart: o.cart || null };
     } catch (e) { /* first run or storage blocked */ }
-    return { batches: [], currentId: null, suppliers: [], products: null, sync: null, udhar: null, custAll: [], bills: [], cart: null };
+    return { batches: [], currentId: null, suppliers: [], products: null, sync: null, udhar: null, karz: null, sups: [], custAll: [], bills: [], cart: null };
   }
   let data = load();
   function save() {
@@ -153,6 +153,8 @@
       data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null, shop: obj.shop || '', imported: Array.isArray(obj.imported) ? obj.imported.slice(0, 400) : [], billsDone: Array.isArray(obj.billsDone) ? obj.billsDone.slice(0, 400) : [] };
       data.custAll = Array.isArray(obj.custAll) ? obj.custAll.slice(0, 1500).map((c) => ({ i: Number(c.i), n: String(c.n).slice(0, 120), p: String(c.p || '').slice(0, 30), b: c.b === undefined ? null : Number(c.b) })) : [];
       data.udhar = Array.isArray(obj.cust) ? { list: obj.cust.slice(0, 400), ts: obj.ts || null } : null;
+      data.karz = Array.isArray(obj.karz) ? { list: obj.karz.slice(0, 300), ts: obj.ts || null } : null;
+      data.sups = Array.isArray(obj.sups) ? obj.sups.slice(0, 300).map((x) => String(x).slice(0, 100)) : [];
       data.bills = data.bills.filter((bl) => bl.status === 'pending' || !(data.products.billsDone || []).includes(bl.id) || Date.now() - bl.at < 3 * 86400000).slice(0, 30);
       save(); renderFields(); updateHint(); renderStock(); renderUdhar(); renderBill();
       syncMsg = `Updated online · ${items.length} products`;
@@ -168,7 +170,9 @@
     const b = ensureCurrent();
     $('#supplier').value = b.supplier || '';
     $('#date').value = b.date;
-    $('#suppliers').innerHTML = data.suppliers.map((s) => `<option value="${esc(s)}">`).join('');
+    const allSup = [...data.suppliers, ...(data.sups || []).filter((x) => !data.suppliers.some((y) => y.toLowerCase() === x.toLowerCase()))];
+    $('#suppliers').innerHTML = allSup.map((s) => `<option value="${esc(s)}">`).join('');
+    renderPay(b);
     $('#plist').innerHTML = productNames().map((n) => `<option value="${esc(n)}">`).join('');
   }
 
@@ -183,6 +187,7 @@
           <div class="sum">${fmt(l.q * l.c)}</div><button class="x" data-del="${i}" aria-label="Remove">×</button></div>`).join('')
       : `<div class="empty">${CUP}<b>Nothing added yet</b><br>Add each item you buy, one by one.</div>`;
     popIdx = -1;
+    renderPay(b);
     $('#totalAmt').textContent = money(t.amount);
     $('#totalSub').textContent = t.items ? `${t.items} item${t.items === 1 ? '' : 's'} · ${fmt(t.qty)} pcs` : 'No items yet';
     $('#sendBtn').disabled = !t.items;
@@ -257,15 +262,35 @@
   }
 
   // ------------------------------------------------------------------ sending
+  /** How much of this purchase was paid at once. undefined = no wholesaler, so karz is not tracked. */
+  function payAmount(b) {
+    if (!b.supplier) return undefined;
+    const t = totals(b).amount;
+    const mode = b.pay || 'karz';
+    return mode === 'paid' ? t : mode === 'part' ? Math.min(Math.max(num(b.paid) || 0, 0), t) : 0;
+  }
+  function renderPay(b) {
+    const box = $('#payBox');
+    box.hidden = !b.supplier;
+    if (!b.supplier) return;
+    const mode = b.pay || 'karz';
+    document.querySelectorAll('#paySeg button').forEach((x) => x.classList.toggle('on', x.dataset.m === mode));
+    $('#paidWrap').hidden = mode !== 'part';
+    if (document.activeElement !== $('#paidNow')) $('#paidNow').value = b.paid || '';
+    const t = totals(b).amount;
+    const paid = payAmount(b);
+    $('#payInfo').innerHTML = t ? (paid >= t ? 'Fully paid — no karz.' : `Karz to <b>${esc(b.supplier)}</b>: <b class="red">${money(t - paid)}</b>`) : 'Karz is worked out when you add items.';
+  }
   function summaryText(b) {
+    const _p = payAmount(b), _t = totals(b).amount;
     const t = totals(b);
     const lines = b.lines.map((l, i) => `${i + 1}. ${l.n} — ${fmt(l.q)} x ${fmt(l.c)} = ${fmt(l.q * l.c)}`);
-    return [`Maal entry — ${nice(b.date)}`, b.supplier ? `Supplier: ${b.supplier}` : null, ...lines, `Total: ${fmt(t.qty)} pcs, ${money(t.amount)}`]
+    return [`Maal entry — ${nice(b.date)}`, b.supplier ? `Supplier: ${b.supplier}` : null, ...lines, `Total: ${fmt(t.qty)} pcs, ${money(t.amount)}`, _p === undefined ? null : (_p >= _t ? 'Paid in full' : `Paid ${money(_p)}, karz ${money(_t - _p)}`)]
       .filter(Boolean).join('\n');
   }
   function packedText(b) {
     const payload = {
-      v: 1, id: b.id, date: b.date, supplier: b.supplier || '',
+      v: 1, id: b.id, date: b.date, supplier: b.supplier || '', ...(payAmount(b) === undefined ? {} : { paid: payAmount(b) }),
       lines: b.lines.map((l) => (l.s !== undefined ? { n: l.n, q: l.q, c: l.c, s: l.s } : { n: l.n, q: l.q, c: l.c })),
     };
     return `${summaryText(b)}\n\n(Do not change anything below this line)\n${self.Packing.pack('CROCKERY-MAAL', payload)}`;
@@ -280,7 +305,7 @@
   async function uploadBatch(b) {
     if (!data.sync || !data.sync.key) throw new Error('This phone is not connected for sending. Open the link from the laptop again.');
     if (!navigator.onLine) throw new Error('No internet. Use "Copy message" or try again later.');
-    const payload = { v: 1, id: b.id, date: b.date, supplier: b.supplier || '',
+    const payload = { v: 1, id: b.id, date: b.date, supplier: b.supplier || '', ...(payAmount(b) === undefined ? {} : { paid: payAmount(b) }),
       lines: b.lines.map((l) => (l.s !== undefined ? { n: l.n, q: l.q, c: l.c, s: l.s } : { n: l.n, q: l.q, c: l.c })) };
     const content = await self.StockCrypto.encrypt(payload, data.sync.pass);
     const r = await fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
@@ -564,15 +589,30 @@
     let msg = 'Saved. It will be sent when the phone has internet.';
     try { await uploadBill(bl); msg = 'Sent. The laptop makes the bill by itself.'; } catch (e) { if (e.message !== 'offline') { msg = e.message; } }
     renderBill(); renderStock();
-    const s = sheet('Bill ready', `<div class="item-row"><b>${esc(bl.cn || 'Walk-in customer')}</b><div class="muted small">${esc(nice(bl.date))}</div>
-      <div style="font-size:30px;font-weight:800;margin-top:6px">${money(bl.total)}</div>${bl.due > 0 ? `<div class="red small">Udhar ${money(bl.due)}</div>` : '<div class="small" style="color:var(--good)">Paid in full</div>'}</div>
-      <p class="muted small">${esc(msg)}</p>
-      <button class="btn primary block big" id="bs_share">Share bill (WhatsApp)</button><button class="btn block" id="bs_new">New bill</button>`);
-    $('#bs_share', s.el).addEventListener('click', async () => {
-      const text = billText(bl);
-      try { if (navigator.share) await navigator.share({ title: 'Bill', text }); else { await navigator.clipboard.writeText(text); toast('Bill copied'); } } catch (e) { /* cancelled */ }
-    });
-    $('#bs_new', s.el).addEventListener('click', () => s.close());
+    openReceipt(bl, msg);
+  }
+  /** The receipt: picture on screen, then Share (WhatsApp) / Save picture / Save PDF. */
+  function openReceipt(bl, msg) {
+    const shop = (data.products && data.products.shop) || '';
+    const canvas = self.Receipt.draw(bl, shop);
+    const s = sheet('Receipt', `<img id="rc_img" class="receipt-img" alt="Receipt" src="${canvas.toDataURL('image/png')}">
+      ${msg ? `<p class="muted small">${esc(msg)}</p>` : ''}
+      <button class="btn primary block big" id="rc_share">Share (WhatsApp)</button>
+      <div class="row2"><button class="btn block" id="rc_png">Save picture</button><button class="btn block" id="rc_pdf">Save PDF</button></div>
+      <button class="btn block" id="rc_new">${msg ? 'New bill' : 'Close'}</button>`);
+    const nm = `Bill-${bl.date}${bl.cn ? '-' + bl.cn.replace(/[^\w\u0600-\u06FF-]+/g, '_') : ''}`;
+    const run = (kind, shareFirst) => async () => {
+      try {
+        const blob = kind === 'pdf' ? await self.Receipt.pdf(canvas) : await self.Receipt.png(canvas);
+        const r = await self.Receipt.deliver(blob, `${nm}.${kind}`, shareFirst);
+        if (r === 'saved') toast(kind === 'pdf' ? 'PDF saved in Downloads' : 'Picture saved in Downloads');
+      } catch (e) { toast('Could not make the file: ' + e.message, true); }
+    };
+    $('#rc_share', s.el).addEventListener('click', run('png', true));
+    $('#rc_png', s.el).addEventListener('click', run('png', false));
+    $('#rc_pdf', s.el).addEventListener('click', run('pdf', false));
+    $('#rc_new', s.el).addEventListener('click', () => s.close());
+    return s;
   }
   const levelOf = (q) => (q <= 0 ? 'out' : q <= 5 ? 'low' : 'ok');
 
@@ -601,27 +641,35 @@
   }
 
   const fmtTs = (ts) => { const d = new Date(ts); return `${nice(ymd(d))}, ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  let uMode = 'udhar';   // 'udhar' = customers who owe me, 'karz' = wholesalers I owe
   function renderUdhar() {
-    const u = data.udhar;
+    document.querySelectorAll('#um_seg button').forEach((x) => x.classList.toggle('on', x.dataset.m === uMode));
+    const karz = uMode === 'karz';
+    const u = karz ? data.karz : data.udhar;
+    $('#udharLabel').textContent = karz ? 'Karz to wholesalers' : 'Udhar pending';
+    $('#u_q').placeholder = karz ? 'Search wholesaler…' : 'Search customer…';
     if (!u) {
       $('#udharTotal').textContent = '–';
-      $('#udharSub').textContent = data.sync ? 'Udhar is not shared by the laptop' : 'Not connected';
-      $('#u_list').innerHTML = `<div class="empty">${CUP}<b>${data.sync ? 'Udhar is switched off' : 'Connect the laptop first'}</b><br>${data.sync ? 'At the laptop: Settings → Stock online for the phone → tick “Also show udhar on the phone”.' : 'Open the link from the laptop (Settings → Stock online for the phone) on this phone.'}</div>`;
+      $('#udharSub').textContent = data.sync ? (karz ? 'Karz is not shared by the laptop yet' : 'Udhar is not shared by the laptop') : 'Not connected';
+      $('#u_list').innerHTML = `<div class="empty">${CUP}<b>${data.sync ? (karz ? 'Karz not received yet' : 'Udhar is switched off') : 'Connect the laptop first'}</b><br>${data.sync ? (karz ? 'Update the laptop software, then in Settings press “Send stock now”, and refresh here.' : 'At the laptop: Settings → Stock online for the phone → tick “Also show udhar on the phone”.') : 'Open the link from the laptop (Settings → Stock online for the phone) on this phone.'}</div>`;
       return;
     }
     const total = u.list.reduce((s, c) => s + c.b, 0);
     $('#udharTotal').textContent = money(total);
-    $('#udharSub').textContent = `${u.list.length} customer${u.list.length === 1 ? '' : 's'} owe you${u.ts ? ' · as of ' + fmtTs(u.ts) : ''}`;
+    $('#udharSub').textContent = karz ? `You owe ${u.list.length} wholesaler${u.list.length === 1 ? '' : 's'}${u.ts ? ' · as of ' + fmtTs(u.ts) : ''}`
+      : `${u.list.length} customer${u.list.length === 1 ? '' : 's'} owe you${u.ts ? ' · as of ' + fmtTs(u.ts) : ''}`;
     const q = norm($('#u_q').value);
     const rows = u.list.filter((c) => !q || norm(c.n).includes(q) || String(c.p).includes(q));
-    $('#u_list').innerHTML = rows.map((c, i) => `<button class="pcard ccard" data-c="${u.list.indexOf(c)}"><div class="top2"><div class="who">${avatar(c.n)}
+    $('#u_list').innerHTML = rows.map((c) => `<button class="pcard ccard" data-c="${u.list.indexOf(c)}"><div class="top2"><div class="who">${avatar(c.n)}
       <div style="min-width:0"><div class="nm">${esc(c.n)}</div><div class="meta">${esc(c.p || 'no phone')}</div></div></div><div class="bal">${fmt(c.b)}<small>Rs</small></div></div></button>`).join('')
-      || (u.list.length ? '<div class="empty">Nobody found.</div>' : '<div class="empty">${CUP}<b>Nobody owes you anything</b></div>');
+      || (u.list.length ? '<div class="empty">Nobody found.</div>' : `<div class="empty">${CUP}<b>${karz ? 'You owe nobody anything' : 'Nobody owes you anything'}</b></div>`);
   }
   function openCustomer(c) {
-    const typ = { opening: 'Old balance', credit_sale: 'Bill (udhar)', payment: 'Payment received', sale_cancel: 'Bill cancelled', adjust: 'Correction' };
+    const karz = uMode === 'karz';
+    const typ = karz ? { opening: 'Old karz', purchase: 'Maal on karz', payment: 'Paid to him', adjust: 'Correction' }
+      : { opening: 'Old balance', credit_sale: 'Bill (udhar)', payment: 'Payment received', sale_cancel: 'Bill cancelled', adjust: 'Correction' };
     const s = sheet(c.n, `
-      <div class="item-row" style="display:flex;justify-content:space-between;align-items:center"><div class="muted small">Udhar pending</div><div style="font-size:26px;font-weight:800;color:var(--red)">${money(c.b)}</div></div>
+      <div class="item-row" style="display:flex;justify-content:space-between;align-items:center"><div class="muted small">${karz ? 'You owe him (karz)' : 'Udhar pending'}</div><div style="font-size:26px;font-weight:800;color:var(--red)">${money(c.b)}</div></div>
       ${c.p ? `<a class="btn primary block call" href="tel:${esc(String(c.p).replace(/[^+\d]/g, ''))}">Call ${esc(c.p)}</a>` : ''}
       <h2 style="margin:16px 2px 8px;font-size:15px">Latest entries</h2>
       <div class="item-row" style="padding-top:2px;padding-bottom:2px">${c.e.length ? c.e.map((x) => `<div class="entry"><div><b>${esc(typ[x.t] || x.t)}</b><div class="muted small">${esc(nice(x.d))}${x.n ? ' · ' + esc(x.n) : ''}</div></div>
@@ -692,6 +740,7 @@
       const b = ensureCurrent();
       b.supplier = $('#supplier').value.trim();
       if (b.supplier) data.suppliers = [b.supplier, ...data.suppliers.filter((x) => x !== b.supplier)].slice(0, 20);
+      renderPay(b);
       save();
     });
     $('#date').addEventListener('change', () => { const b = ensureCurrent(); b.date = $('#date').value || ymd(new Date()); save(); });
@@ -733,15 +782,16 @@
     $('#b_full').addEventListener('click', () => { cart().paid = ''; save(); renderBill(); });
     $('#b_udhar').addEventListener('click', () => { cart().paid = '0'; save(); renderBill(); });
     $('#billSend').addEventListener('click', sendBill);
-    $('#b_recentList').addEventListener('click', (e) => { const r = e.target.closest('[data-rb]'); if (!r) return; const bl = data.bills.find((x) => x.id === r.dataset.rb); if (!bl) return;
-      const s = sheet('Bill', `<pre>${esc(billText(bl))}</pre><button class="btn primary block" id="rb_share">Share</button>`);
-      $('#rb_share', s.el).addEventListener('click', async () => { try { if (navigator.share) await navigator.share({ title: 'Bill', text: billText(bl) }); else { await navigator.clipboard.writeText(billText(bl)); toast('Copied'); } } catch (_) { /* cancelled */ } }); });
+    $('#b_recentList').addEventListener('click', (e) => { const r = e.target.closest('[data-rb]'); if (!r) return; const bl = data.bills.find((x) => x.id === r.dataset.rb); if (bl) openReceipt(bl, ''); });
     window.addEventListener('online', sendPending);
     $('#k_q').addEventListener('input', renderStock);
     $('#u_q').addEventListener('input', renderUdhar);
+    $('#um_seg').addEventListener('click', (e) => { const b = e.target.closest('[data-m]'); if (!b) return; uMode = b.dataset.m; $('#u_q').value = ''; renderUdhar(); });
+    $('#paySeg').addEventListener('click', (e) => { const b = e.target.closest('[data-m]'); if (!b) return; const bb = ensureCurrent(); bb.pay = b.dataset.m; save(); renderPay(bb); });
+    $('#paidNow').addEventListener('input', () => { const bb = ensureCurrent(); bb.paid = $('#paidNow').value; save(); renderPay(bb); });
     $('#k_seg').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; stockFilter = b.dataset.f; document.querySelectorAll('#k_seg .chip').forEach((x) => x.classList.toggle('on', x === b)); renderStock(); });
     $('#k_list').addEventListener('click', (e) => { const r = e.target.closest('[data-n]'); if (!r) return; setTab('maal'); $('#name').value = r.dataset.n; updateHint(); $('#qty').focus(); });
-    $('#u_list').addEventListener('click', (e) => { const r = e.target.closest('[data-c]'); if (r && data.udhar) openCustomer(data.udhar.list[Number(r.dataset.c)]); });
+    $('#u_list').addEventListener('click', (e) => { const r = e.target.closest('[data-c]'); const src = uMode === 'karz' ? data.karz : data.udhar; if (r && src) openCustomer(src.list[Number(r.dataset.c)]); });
     $('#tabs').addEventListener('click', (e) => { if (e.target.closest('#moreTab')) return openMenu(); const t = e.target.closest('[data-tab]'); if (t) setTab(t.dataset.tab); });
     window.addEventListener('online', setStatus);
     window.addEventListener('offline', setStatus);

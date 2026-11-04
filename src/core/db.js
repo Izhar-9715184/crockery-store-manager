@@ -160,7 +160,34 @@ const MIGRATIONS = [
   ALTER TABLE sales ADD COLUMN phone_id TEXT;
   CREATE UNIQUE INDEX idx_sales_phone_id ON sales(phone_id) WHERE phone_id IS NOT NULL;
   `,
-  // ---- v5, v6 ... add future changes here (never edit the ones above) ------
+  // ---- v5: wholesaler karz — what the shop owes to the people it buys maal from -------
+  `
+  CREATE TABLE suppliers (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL COLLATE NOCASE,
+    phone      TEXT,
+    notes      TEXT,
+    active     INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  );
+  CREATE UNIQUE INDEX idx_suppliers_name ON suppliers(name COLLATE NOCASE);
+  CREATE TABLE supplier_ledger (
+    id          INTEGER PRIMARY KEY,
+    supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+    date        TEXT NOT NULL,
+    type        TEXT NOT NULL,  -- opening | purchase | payment | adjust
+    debit       REAL NOT NULL DEFAULT 0,   -- we owe more (maal on karz)
+    credit      REAL NOT NULL DEFAULT 0,   -- we paid / reduction
+    move_id     INTEGER REFERENCES stock_moves(id),
+    method      TEXT,
+    note        TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    edited_at   TEXT
+  );
+  CREATE INDEX idx_supledger_supplier ON supplier_ledger(supplier_id);
+  CREATE INDEX idx_supledger_move ON supplier_ledger(move_id);
+  `,
+  // ---- v6, v7 ... add future changes here (never edit the ones above) ------
 ];
 
 

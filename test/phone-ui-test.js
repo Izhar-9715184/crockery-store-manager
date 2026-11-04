@@ -99,6 +99,14 @@ function pagesServer() {
   await phone.waitForFunction(() => window.__maalReady === true);
   assert.equal(await phone.locator('.line').count(), 3);
 
+  // wholesaler: karz / paid / part paid
+  assert.equal(await phone.isVisible('#payBox'), true);
+  assert.match(await phone.textContent('#payInfo'), /Karz to Rafiq Traders: Rs 6,600/);
+  await phone.click('#paySeg [data-m=part]');
+  await phone.fill('#paidNow', '2100');
+  assert.match(await phone.textContent('#payInfo'), /Rs 4,500/);
+  await phone.screenshot({ path: path.join(shots, 'p1b-karz.png') });
+
   // send
   await phone.click('#sendBtn');
   await phone.waitForSelector('#s_share');
@@ -108,6 +116,17 @@ function pagesServer() {
   const message = await phone.evaluate(() => window.__shared.text);
   assert.match(message, /CROCKERY-MAAL:/);
   assert.match(message, /Rafiq Traders/);
+  assert.match(message, /Paid Rs 2,100, karz Rs 4,500/);
+  { // the laptop reads the same message: karz is recorded
+    const Packing = require('../docs/packing.js');
+    const obj = Packing.unpack(message, 'CROCKERY-MAAL');
+    assert.equal(obj.paid, 2100);
+    const svc2 = createService(new Store(fs.mkdtempSync(path.join(os.tmpdir(), 'crockery-ph2-'))));
+    for (const [n, c] of [['Chai Pyala نیا', 60], ['dinner plate', 120], ['Glass Set', 500]]) svc2.saveProduct({ name: n, cost_price: c, sale_price: c + 50, stock: 0 });
+    assert.equal(svc2.autoImportPurchase(message).status, 'imported');
+    const sup = svc2.listSuppliers({})[0];
+    assert.equal(sup.name, 'Rafiq Traders'); assert.equal(sup.balance, 6600 - 2100);
+  }
   assert.equal(await phone.locator('.line').count(), 0, 'a new empty list is ready after sending');
   await phone.click('#menuBtn');
   await phone.click('#m_hist');
@@ -149,7 +168,7 @@ function pagesServer() {
   {
     const StockCrypto = require('../docs/stockcrypto.js');
     const gid = 'b'.repeat(32), pass = 'k7m2p9x4qa';
-    let content = await StockCrypto.encrypt({ v: 1, at: '2026-10-28', ts: '2026-10-28T09:15:00', items: [{ i: 7, n: 'Tea Cup', k: '', c: 40, s: 70, q: 33, u: 'pcs' }], custAll: [{ i: 3, n: 'Ali Khan', p: '0300 1234567', b: 5200 }, { i: 4, n: 'Bilal', p: '', b: 800 }, { i: 5, n: 'Chaudhry', p: '', b: 0 }], cust: [{ n: 'Ali Khan', p: '0300 1234567', b: 5200, e: [{ d: '2026-10-20', t: 'credit_sale', db: 5200, cr: 0, n: 'Udhar on INV-00001' }] }, { n: 'Bilal', p: '', b: 800, e: [] }] }, pass);
+    let content = await StockCrypto.encrypt({ v: 1, at: '2026-10-28', ts: '2026-10-28T09:15:00', items: [{ i: 7, n: 'Tea Cup', k: '', c: 40, s: 70, q: 33, u: 'pcs' }], custAll: [{ i: 3, n: 'Ali Khan', p: '0300 1234567', b: 5200 }, { i: 4, n: 'Bilal', p: '', b: 800 }, { i: 5, n: 'Chaudhry', p: '', b: 0 }], cust: [{ n: 'Ali Khan', p: '0300 1234567', b: 5200, e: [{ d: '2026-10-20', t: 'credit_sale', db: 5200, cr: 0, n: 'Udhar on INV-00001' }] }, { n: 'Bilal', p: '', b: 800, e: [] }], sups: ['Rafiq Traders', 'Hajji Sons'], karz: [{ n: 'Rafiq Traders', p: '', b: 900, e: [{ d: '2026-10-20', t: 'purchase', db: 1000, cr: 0, n: 'Plate × 10' }, { d: '2026-10-21', t: 'payment', db: 0, cr: 100, n: '' }] }] }, pass);
     const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
     const uploads = [];
     await ctx2.route('https://api.github.com/gists/*', (r) => {
@@ -182,7 +201,22 @@ function pagesServer() {
     await p2.click('.sheet header button');
     await p2.screenshot({ path: path.join(shots, 'p6-udhar.png') });
     await p2.fill('#u_q', '');
+    // wholesale karz (what I owe)
+    await p2.click('#um_seg [data-m=karz]');
+    assert.match(await p2.textContent('#udharTotal'), /900/);
+    assert.match(await p2.textContent('#udharLabel'), /Karz to wholesalers/);
+    assert.equal(await p2.locator('#u_list .ccard').count(), 1);
+    await p2.click('#u_list .ccard');
+    assert.match(await p2.textContent('.sheet'), /Maal on karz/);
+    assert.match(await p2.textContent('.sheet'), /Plate × 10/);
+    await p2.waitForTimeout(400);
+    await p2.screenshot({ path: path.join(shots, 'p6b-karz-sheet.png') });
+    await p2.click('.sheet header button');
+    await p2.screenshot({ path: path.join(shots, 'p6b-karz.png') });
+    await p2.click('#um_seg [data-m=udhar]');
+    assert.match(await p2.textContent('#udharTotal'), /6,000/);
     await p2.click('[data-tab=maal]');
+    assert.ok((await p2.locator('#suppliers option').count()) >= 2, 'wholesaler names from the laptop are suggested');
     await p2.waitForTimeout(400);
     await p2.screenshot({ path: path.join(shots, 'p5-online.png') });
     // laptop sold some -> next refresh shows the new number
@@ -209,12 +243,25 @@ function pagesServer() {
     assert.match(await p2.textContent('#toast'), /Only 30/);
     await p2.fill('#b_lines input.q', '2');
     await p2.click('#billSend');
-    await p2.waitForSelector('#bs_share');
+    await p2.waitForSelector('#rc_img');
+    await p2.waitForTimeout(300);
+    await p2.screenshot({ path: path.join(shots, 'p8-receipt.png') });
+    {
+      const [d1] = await Promise.all([p2.waitForEvent('download'), p2.click('#rc_png')]);
+      assert.match(d1.suggestedFilename(), /^Bill-.*Bilal.*\.png$/);
+      const f1 = await d1.path(); const b1 = fs.readFileSync(f1);
+      assert.equal(b1.slice(1, 4).toString(), 'PNG'); assert.ok(b1.length > 8000);
+      const [d2] = await Promise.all([p2.waitForEvent('download'), p2.click('#rc_pdf')]);
+      assert.match(d2.suggestedFilename(), /\.pdf$/);
+      const b2 = fs.readFileSync(await d2.path());
+      assert.equal(b2.slice(0, 5).toString(), '%PDF-'); assert.ok(b2.length > 8000);
+      fs.copyFileSync(f1, path.join(shots, 'phone-receipt.png')); fs.writeFileSync(path.join(shots, 'phone-receipt.pdf'), b2);
+    }
     const billUp = uploads.find((u) => Object.keys(u.body.files)[0].startsWith('bill-'));
     assert.ok(billUp, 'bill uploaded');
     const billObj = await StockCrypto.decrypt(billUp.body.files[Object.keys(billUp.body.files)[0]].content, pass);
     assert.equal(billObj.cid, 4); assert.equal(billObj.lines[0].p, 7); assert.equal(billObj.lines[0].q, 2); assert.equal(billObj.paid, 40);
-    await p2.click('#bs_new');
+    await p2.click('#rc_new');
     await p2.click('[data-tab=maal]');
     await p2.fill('#name', 'Tea Cup');                                   // stock figure already counts the sold pieces
     assert.match(await p2.textContent('#hint'), /stock 30 pcs − 2 sold from this phone/);

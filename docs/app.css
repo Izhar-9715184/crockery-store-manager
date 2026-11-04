@@ -200,3 +200,6 @@ body { background-image:
 .tab.fab.on span.l { color: #fff; }
 .bar { bottom: calc(92px + env(safe-area-inset-bottom)); }
 body { padding-bottom: calc(190px + env(safe-area-inset-bottom)); }
+
+.receipt-img { width: 100%; border-radius: 14px; box-shadow: 0 12px 28px -16px var(--shadow); margin-bottom: 12px; background: #fff; }
+.hero.red, .hero.tile.red { color: #fff; }   /* the colour name must not turn the heading red */

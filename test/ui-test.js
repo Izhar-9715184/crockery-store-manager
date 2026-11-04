@@ -134,7 +134,13 @@ fs.mkdirSync(shots, { recursive: true });
   await page.click('#savePrint');
   await page.waitForSelector('.toast.ok');
   await page.waitForTimeout(150);
-  assert.equal(await page.evaluate(() => window.__printed), 1, 'print was triggered');
+  // the receipt is shown first; nothing is printed until the owner presses Print
+  await page.waitForSelector('.modal .preview .inv');
+  assert.ok(!(await page.evaluate(() => window.__printed)), 'not printed before choosing');
+  for (const b of ['Save as PDF', 'Save as picture', 'Print']) assert.ok(await page.locator(`.modal footer button:has-text("${b}")`).count(), b);
+  await page.click('.modal footer button:has-text("Print")');
+  await page.waitForFunction(() => window.__printed === 1);
+  await page.click('.modal footer button:has-text("Close")');
   assert.equal(svc.getCustomer(1).balance, 3000);
   assert.equal(svc.listProducts({ q: 'plate' })[0].stock, 22);
 

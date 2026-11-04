@@ -292,6 +292,72 @@ function statementHtml(led, s = App.settings) {
     </div></div>`;
 }
 
+
+/* ---------- receipt as picture / PDF (no printer needed: easy to send to a customer on WhatsApp) ---------- */
+function jpegToPdf(jpeg, w, h) {
+  const enc = new TextEncoder();
+  const pw = +(w * 0.75).toFixed(2), ph = +(h * 0.75).toFixed(2);
+  const chunks = [];
+  const offs = [];
+  let len = 0;
+  const put = (x) => { const b = typeof x === 'string' ? enc.encode(x) : x; chunks.push(b); len += b.length; };
+  put('%PDF-1.4\n');
+  const obj = (n, body, stream) => {
+    offs[n] = len;
+    put(`${n} 0 obj\n${body}\n`);
+    if (stream) { put('stream\n'); put(stream); put('\nendstream\n'); }
+    put('endobj\n');
+  };
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  obj(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>`);
+  const content = `q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`;
+  obj(4, `<< /Length ${content.length} >>`, content);
+  obj(5, `<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>`, jpeg);
+  const xref = len;
+  put(`xref\n0 6\n0000000000 65535 f \n${[1, 2, 3, 4, 5].map((n) => String(offs[n]).padStart(10, '0') + ' 00000 n \n').join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  const out = new Uint8Array(len);
+  let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.length; }
+  return out;
+}
+
+/** Draws an element (e.g. the bill in the preview) onto a canvas, 3x sharp. */
+async function elementToCanvas(el) {
+  const css = (await (window.sys.readStyles ? window.sys.readStyles() : '')) || '';
+  const r = el.getBoundingClientRect();
+  const w = Math.ceil(r.width), hgt = Math.ceil(r.height), scale = 3;
+  const clone = el.cloneNode(true);
+  clone.style.boxShadow = 'none'; clone.style.animation = 'none'; clone.style.margin = '0';
+  const xml = new XMLSerializer().serializeToString(clone);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hgt}"><foreignObject width="100%" height="100%">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;font-family:'Segoe UI',system-ui,Arial,'Noto Nastaliq Urdu',sans-serif;font-size:14px;color:#1b2429"><style>${css.replace(/</g, '\\3c ')}</style>${xml}</div></foreignObject></svg>`;
+  const img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('Could not draw the receipt')); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
+  const c = document.createElement('canvas');
+  c.width = w * scale; c.height = hgt * scale;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  g.scale(scale, scale); g.drawImage(img, 0, 0);
+  return c;
+}
+const canvasBytes = async (c, type, q) => new Uint8Array(await (await new Promise((res) => c.toBlob(res, type, q))).arrayBuffer());
+
+/** kind: 'png' | 'pdf'. Saves through a "Save as" window; returns the saved path (or null if cancelled). */
+async function saveReceipt(el, kind, baseName) {
+  const c = await elementToCanvas(el);
+  const bytes = kind === 'pdf' ? jpegToPdf(await canvasBytes(c, 'image/jpeg', 0.93), c.width, c.height) : await canvasBytes(c, 'image/png');
+  const name = `${String(baseName).replace(/[^\w.-]+/g, '_')}.${kind}`;
+  if (window.sys.saveFile) {
+    let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return window.sys.saveFile({ name, base64: btoa(bin), kind });
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes], { type: kind === 'pdf' ? 'application/pdf' : 'image/png' }));
+  a.download = name; document.body.append(a); a.click(); a.remove();
+  return name;
+}
+
 /** Print the bill straight away on the paper the shop chose in Settings. */
 function printSale(sale) { printHtml(invoiceHtml(sale), paperOf()); }
 
@@ -305,11 +371,11 @@ async function showInvoice(saleId, { onChange } = {}) {
     $('.preview', m.body).className = 'preview ' + paper;
   };
   const m = modal({
-    title: `Print Bill ${sale.invoice_no}${sale.edited_at ? ' (edited)' : ''}`,
+    title: `Receipt ${sale.invoice_no}${sale.edited_at ? ' (edited)' : ''}`,
     wide: true,
     body: `<div class="paper-pick">${Object.keys(PAPERS).map((k) => `<button data-p="${k}">${esc(PAPERS[k].label)}</button>`).join('')}</div>
       <div class="preview-wrap"><div class="preview"></div></div>
-      <p class="muted small" style="margin:10px 0 0">In the print window choose your printer. If the bill looks cut off, set Margins to “Default” and untick “Headers and footers”.</p>`,
+      <p class="muted small" style="margin:10px 0 0"><b>Save as PDF</b> or <b>Save as picture</b> makes a file you can send to the customer (WhatsApp, email). <b>Print</b> sends it to your printer — if it looks cut off, set Margins to “Default” and untick “Headers and footers”.</p>`,
     actions: [
       ...(sale.status === 'active' ? [{
         label: 'Edit bill', close: false,
@@ -337,8 +403,14 @@ async function showInvoice(saleId, { onChange } = {}) {
         },
       }] : []),
       { label: 'Close' },
+      { label: 'Save as PDF', kind: 'teal', close: false, onClick: () => doSave('pdf') },
+      { label: 'Save as picture', kind: 'teal', close: false, onClick: () => doSave('png') },
       { label: 'Print', kind: 'primary', close: false, onClick: () => printHtml(invoiceHtml(sale, App.settings, paper), paper) },
     ],
+  });
+  const doSave = (kind) => safe(async () => {
+    const p = await saveReceipt($('.preview .inv', m.body), kind, `${sale.invoice_no}${sale.customer_name ? '-' + sale.customer_name : ''}`);
+    if (p) toast(`Saved: ${p}`, 'ok');
   });
   m.body.addEventListener('click', async (e) => {
     const b = e.target.closest('.paper-pick button');
@@ -367,6 +439,7 @@ const ICONS = {
   sales: '<path d="M4 2v20l3-2 3 2 3-2 3 2 3-2 1 .7V2z"/><path d="M8 8h8M8 12h8"/>',
   products: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
   customers: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
+  karz: '<path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M16 19h6M19 16v6"/>',
   reports: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
   settings: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
   rupee: '<path d="M6 3h12M6 8h12M9 13h3a4 4 0 0 0 0-8M9 13l6 8"/>',

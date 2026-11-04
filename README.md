@@ -238,3 +238,9 @@ Settings -> **Stock online for the phone**: GitHub token (sirf "gist" permission
 **Naya phone design:** neeche 3 tab hain: **Maal** (entry), **Stock** (search, Low/Out filter, har product par level bar; tap karein to naam entry mein bhar jata hai) aur **Udhar** (kis ka kitna udhar, tap par pichli entries aur Call button). Udhar dikhana laptop ke Settings -> Stock online for the phone mein "Also show udhar" tick se on/off hota hai (locked copy, sirf wo customers jin ka udhar baqi hai).
 
 **Naya (v12):** (1) laptop ka naya rangeen graphics + jali pattern, (2) udhar ledger mein **Delete** (payment/old balance/correction ko mita sakte hain; bill ke saamne Delete = bill delete, stock aur udhar wapas), (3) phone par **Bill** tab: customer chunein, items, discount/udhar, **Send bill** — laptop on hote hi khud bill bana deta hai (ek bill do dafa nahi banta; stock kam ho to Settings mein error dikhta hai).
+
+## Wholesale karz and receipts (v1.1.5)
+
+- **Wholesale Karz** (new page in the sidebar): what you owe each wholesaler. Add stock with a wholesaler name and choose *Karz*, *Fully paid* or *Part paid*; the unpaid part is added to that wholesaler's account. Pay him back from the page (*Pay*), and add old karz from the paper register (*Add Old Karz*). Editing a stock-in entry corrects the karz too.
+- **Phone:** the Maal entry has the same Karz / Paid / Part paid choice (sent with the list, recorded when the laptop imports it). The *Udhar* tab now has two buttons: *Customer udhar* and *Wholesale karz*.
+- **Receipts:** *Save & Receipt* shows the bill first. From there choose **Save as PDF**, **Save as picture** or **Print** — nothing is printed until you press Print. The phone shows the same receipt after a bill (and from "Bills sent from this phone") with **Share (WhatsApp)**, **Save picture** and **Save PDF**.

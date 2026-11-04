@@ -6,6 +6,7 @@ const NAV = [
   { id: 'sales', label: 'Sales History', icon: 'sales' },
   { id: 'products', label: 'Products & Stock', icon: 'products' },
   { id: 'customers', label: 'Customers & Udhar', icon: 'customers' },
+  { id: 'suppliers', label: 'Wholesale Karz', icon: 'karz' },
   { id: 'reports', label: 'Reports', icon: 'reports' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];

@@ -48,24 +48,56 @@ async function editProduct(p, done) {
   });
 }
 
-function stockInDialog(p, done) {
-  modal({
+async function stockInDialog(p, done) {
+  let sups = [];
+  try { sups = await rpc('listSuppliers', {}); } catch (_) { /* optional */ }
+  const m = modal({
     title: `Stock in — ${p.name}`,
     body: `<div class="form-grid">
       <label class="f"><span>Quantity received *</span><input type="number" name="qty" min="0" step="any"></label>
       <label class="f"><span>Cost price (per piece)</span><input type="number" name="cost_price" min="0" step="any" value="${p.cost_price}"></label>
-      <label class="f"><span>Supplier</span><input type="text" name="supplier"></label>
+      <label class="f"><span>Wholesaler / supplier</span><input type="text" name="supplier" list="siSups" autocomplete="off" placeholder="Choose or type a name">
+        <datalist id="siSups">${sups.map((s) => `<option value="${esc(s.name)}">${s.balance > 0.004 ? 'karz ' + esc(money(s.balance)) : ''}</option>`).join('')}</datalist></label>
       <label class="f"><span>Date</span><input type="date" name="date" value="${today()}"></label>
+      <div class="full" id="siPay" hidden>
+        <div class="seg" id="siSeg" style="margin-bottom:8px"><button type="button" data-m="karz" class="on">Karz (pay later)</button><button type="button" data-m="paid">Fully paid</button><button type="button" data-m="part">Part paid</button></div>
+        <label class="f" id="siPartBox" hidden><span>Paid now (Rs)</span><input type="number" name="paid_part" min="0" step="any"></label>
+        <div class="muted small" id="siInfo"></div></div>
       <label class="f full"><span>Note</span><input type="text" name="note"></label>
       <div class="full muted small">Now in stock: <b>${qty(p.stock)}</b></div></div>`,
     actions: [{ label: 'Cancel' }, {
       label: 'Add stock', kind: 'primary', close: false,
-      onClick: async (m) => {
-        await rpc('stockIn', { ...formData(m.body), product_id: p.id });
-        m.close(); toast('Stock added', 'ok'); if (done) done();
+      onClick: async (mm) => {
+        const f = formData(mm.body);
+        const out = { qty: f.qty, cost_price: f.cost_price, supplier: f.supplier, date: f.date, note: f.note, product_id: p.id };
+        if (String(f.supplier || '').trim()) {
+          const total = (Number(f.qty) || 0) * (Number(f.cost_price) || 0);
+          out.paid = mode === 'karz' ? 0 : mode === 'paid' ? total : (f.paid_part || 0);
+        }
+        await rpc('stockIn', out);
+        mm.close(); toast(out.paid !== undefined && out.paid < (Number(f.qty) * Number(f.cost_price)) ? 'Stock added. The unpaid part is added to Wholesale Karz.' : 'Stock added', 'ok'); if (done) done();
       },
     }],
   });
+  let mode = 'karz';
+  const q = (n) => $(`[name=${n}]`, m.body);
+  const info = () => {
+    const name = q('supplier').value.trim();
+    $('#siPay', m.body).hidden = !name;
+    $('#siPartBox', m.body).hidden = mode !== 'part';
+    const total = (Number(q('qty').value) || 0) * (Number(q('cost_price').value) || 0);
+    const paid = mode === 'karz' ? 0 : mode === 'paid' ? total : Number(q('paid_part').value) || 0;
+    const s = sups.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    $('#siInfo', m.body).innerHTML = name ? `Maal worth <b>${money(total)}</b> · karz added: <b class="red">${money(Math.max(0, total - paid))}</b>${s ? ` · already owed to ${esc(s.name)}: ${money(s.balance)}` : ' · new wholesaler will be created'}` : '';
+  };
+  $('#siSeg', m.body).addEventListener('click', (e) => {
+    const b = e.target.closest('[data-m]'); if (!b) return;
+    mode = b.dataset.m;
+    $$('#siSeg button', m.body).forEach((x) => x.classList.toggle('on', x === b));
+    info();
+  });
+  ['supplier', 'qty', 'cost_price', 'paid_part'].forEach((n) => q(n).addEventListener('input', info));
+  info();
 }
 
 function adjustDialog(p, done) {
@@ -188,7 +220,7 @@ async function reviewPurchase(text, prev, done) {
     title: 'Check before importing',
     wide: true,
     body: `${prev.alreadyImported ? `<div class="banner warn" style="padding:10px 14px;border-radius:8px;margin-bottom:12px">This list was already imported on ${esc(prev.alreadyImported.imported_at.slice(0, 16))}. It cannot be added again.</div>` : ''}
-      <div style="margin-bottom:10px"><b>${esc(fmtDate(prev.date))}</b>${prev.supplier ? ' · ' + esc(prev.supplier) : ''} · ${prev.lines.length} items · ${qty(prev.totalQty)} pcs · <b>${money(prev.totalAmount)}</b></div>
+      <div style="margin-bottom:10px"><b>${esc(fmtDate(prev.date))}</b>${prev.supplier ? ' · ' + esc(prev.supplier) : ''} · ${prev.lines.length} items · ${qty(prev.totalQty)} pcs · <b>${money(prev.totalAmount)}</b>${prev.supplier && prev.paid !== undefined ? `<div class="small" style="margin-top:4px">Paid ${money(Math.min(prev.paid, prev.totalAmount))} · <b class="red">karz ${money(Math.max(0, prev.totalAmount - prev.paid))}</b> will be added to ${esc(prev.supplier)}'s account</div>` : ''}</div>
       <div class="card table-card"><div class="table-wrap" style="max-height:52vh"><table><thead><tr><th>Item on phone</th><th class="r">Qty</th><th class="r">Cost</th><th>Add to which product?</th></tr></thead><tbody>${rows}</tbody></table></div></div>
       <p class="muted small">Matching items are pre-selected. Stock goes up by the quantity, and the cost price becomes the latest purchase price.</p>`,
     actions: [{ label: 'Cancel' }, {

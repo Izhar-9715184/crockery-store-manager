@@ -123,20 +123,155 @@ function createService(store) {
     return true;
   };
 
-  /** Add purchased stock (maal aaya). */
+  // ------------------------------------------------------------ wholesaler karz (what we owe suppliers)
+  const SUP_BAL = `(SELECT COALESCE(SUM(debit)-SUM(credit),0) FROM supplier_ledger l WHERE l.supplier_id = s.id)`;
+  const getSupplier = (id) => {
+    const s = store.get(`SELECT s.*, ${SUP_BAL} AS balance FROM suppliers s WHERE s.id=?`, id);
+    if (s) s.balance = r2(s.balance);
+    return s;
+  };
+  /** Finds a supplier by name (any letter case) or creates it. */
+  function ensureSupplier(name, phone) {
+    const n = clean(name).slice(0, 100);
+    if (!n) fail('Please choose or type the wholesaler name');
+    const f = store.get('SELECT id, active FROM suppliers WHERE name = ? COLLATE NOCASE', n);
+    if (f) {
+      if (!f.active) store.run('UPDATE suppliers SET active=1 WHERE id=?', f.id);
+      return f.id;
+    }
+    return store.run('INSERT INTO suppliers(name,phone) VALUES(?,?)', n, clean(phone)).id;
+  }
+
+  S.listSuppliers = ({ q = '', onlyDue = false } = {}) => {
+    const where = ['s.active = 1'];
+    const params = [];
+    if (clean(q)) { where.push('(s.name LIKE ? OR s.phone LIKE ?)'); params.push(`%${clean(q)}%`, `%${clean(q)}%`); }
+    let sql = `SELECT s.*, ${SUP_BAL} AS balance,
+      (SELECT MAX(date) FROM supplier_ledger l WHERE l.supplier_id = s.id) AS last_date FROM suppliers s WHERE ${where.join(' AND ')}`;
+    if (onlyDue) sql = `SELECT * FROM (${sql}) WHERE balance > 0.004`;
+    sql += onlyDue ? ' ORDER BY balance DESC' : ' ORDER BY name COLLATE NOCASE';
+    return store.all(sql, ...params).map((s) => ({ ...s, balance: r2(s.balance) }));
+  };
+  S.getSupplier = getSupplier;
+
+  S.saveSupplier = (p) =>
+    store.tx(() => {
+      const name = clean(p.name);
+      if (!name) fail('Wholesaler name is required');
+      const same = store.get('SELECT id FROM suppliers WHERE name = ? COLLATE NOCASE', name);
+      if (p.id) {
+        if (same && same.id !== Number(p.id)) fail('Another wholesaler already has this name');
+        store.run('UPDATE suppliers SET name=?, phone=?, notes=? WHERE id=?', name, clean(p.phone), clean(p.notes), p.id);
+        return getSupplier(p.id);
+      }
+      if (same) fail('This wholesaler is already in the list');
+      const id = store.run('INSERT INTO suppliers(name,phone,notes) VALUES(?,?,?)', name, clean(p.phone), clean(p.notes)).id;
+      const opening = r2(num(p.opening_balance, 'Old karz', { min: 0, allowEmpty: true }));
+      if (opening > 0) store.run('INSERT INTO supplier_ledger(supplier_id,date,type,debit,note) VALUES(?,?,?,?,?)', id, dateStr(), 'opening', opening, 'Old karz');
+      return getSupplier(id);
+    });
+
+  S.deleteSupplier = (id) =>
+    store.tx(() => {
+      const s = getSupplier(id) || fail('Wholesaler not found');
+      if (Math.abs(s.balance) > 0.004) fail('You still owe this wholesaler (or he owes you). Clear the karz first.');
+      store.run('UPDATE suppliers SET active=0 WHERE id=?', id);
+      return true;
+    });
+
+  S.supplierLedger = (id) => {
+    const rows = store.all(
+      `SELECT l.*, p.name AS product, m.qty AS m_qty, m.cost_price AS m_cost FROM supplier_ledger l
+       LEFT JOIN stock_moves m ON m.id = l.move_id LEFT JOIN products p ON p.id = m.product_id
+       WHERE l.supplier_id = ? ORDER BY l.date ASC, l.id ASC`, id);
+    let bal = 0;
+    for (const r of rows) { bal = r2(bal + r.debit - r.credit); r.balance = bal; }
+    return { supplier: getSupplier(id), entries: rows.reverse() };
+  };
+
+  /** We pay some karz back to a wholesaler. */
+  S.paySupplier = (p) =>
+    store.tx(() => {
+      const s = getSupplier(p.supplier_id) || fail('Wholesaler not found');
+      const amount = r2(num(p.amount, 'Amount', { min: 0 }));
+      if (amount <= 0) fail('Amount must be greater than zero');
+      store.run('INSERT INTO supplier_ledger(supplier_id,date,type,credit,method,note) VALUES(?,?,?,?,?,?)',
+        s.id, date(p.date), 'payment', amount, clean(p.method) || 'cash', clean(p.note));
+      return getSupplier(s.id);
+    });
+
+  /** Old karz from before (paper register). Picks the wholesaler by id or by name (new names are created). */
+  S.addSupplierKarz = (p) =>
+    store.tx(() => {
+      const id = p.supplier_id ? (getSupplier(p.supplier_id) || fail('Wholesaler not found')).id : ensureSupplier(p.name, p.phone);
+      const amount = r2(num(p.amount, 'Karz', { min: 0 }));
+      if (amount <= 0) fail('Karz must be greater than zero');
+      const note = clean(p.note) ? `Old karz · ${clean(p.note)}` : 'Old karz';
+      store.run('INSERT INTO supplier_ledger(supplier_id,date,type,debit,note) VALUES(?,?,?,?,?)', id, date(p.date), 'opening', amount, note);
+      return getSupplier(id);
+    });
+
+  /** Fix a payment / old karz entry (purchases follow their stock-in entry, so fix those in Stock history). */
+  S.updateSupplierEntry = (p) =>
+    store.tx(() => {
+      const e = store.get('SELECT * FROM supplier_ledger WHERE id=?', p.id) || fail('Entry not found');
+      if (e.type === 'purchase') fail('This karz comes from a stock-in entry. Fix the quantity or cost in Products > Stock history.');
+      const amount = r2(num(p.amount, 'Amount', { min: 0 }));
+      if (amount <= 0) fail('Amount must be greater than zero');
+      const d = date(p.date || e.date);
+      const debit = e.type === 'payment' ? 0 : amount;
+      const credit = e.type === 'payment' ? amount : 0;
+      store.run(`UPDATE supplier_ledger SET date=?, debit=?, credit=?, method=?, note=?, edited_at=datetime('now','localtime') WHERE id=?`,
+        d, debit, credit, p.method === undefined ? e.method : clean(p.method), p.note === undefined ? e.note : clean(p.note), e.id);
+      logEdit('supplier_ledger', e.id, e.type, { date: e.date, debit: e.debit, credit: e.credit, note: e.note }, { date: d, debit, credit, note: p.note === undefined ? e.note : clean(p.note) });
+      return getSupplier(e.supplier_id);
+    });
+
+  S.deleteSupplierEntry = (id) =>
+    store.tx(() => {
+      const e = store.get('SELECT * FROM supplier_ledger WHERE id=?', id) || fail('Entry not found');
+      if (e.type === 'purchase') fail('This karz belongs to a stock-in entry. It cannot be deleted here.');
+      store.run('DELETE FROM supplier_ledger WHERE id=?', id);
+      logEdit('supplier_ledger_deleted', id, e.type, { date: e.date, debit: e.debit, credit: e.credit, note: e.note }, {});
+      return getSupplier(e.supplier_id);
+    });
+
+  /** Records that maal worth `amount` was bought from `name` (karz), and `paid` of it was paid at once. */
+  function trackPurchase(name, moveIds, amounts, paid, dateStr_, note) {
+    const sid = ensureSupplier(name);
+    moveIds.forEach((mid, k) => {
+      if (amounts[k] > 0) store.run('INSERT INTO supplier_ledger(supplier_id,date,type,debit,move_id,note) VALUES(?,?,?,?,?,?)', sid, dateStr_, 'purchase', amounts[k], mid, null);
+    });
+    const total = r2(amounts.reduce((a, b) => a + b, 0));
+    const pay = Math.min(r2(paid), total);
+    if (pay > 0) store.run('INSERT INTO supplier_ledger(supplier_id,date,type,credit,method,note) VALUES(?,?,?,?,?,?)', sid, dateStr_, 'payment', pay, 'cash', note || 'Paid at purchase');
+    return sid;
+  }
+
+  /** Add purchased stock (maal aaya). With a supplier name and `paid` given, the unpaid part becomes karz to that supplier. */
+  function doStockIn(i) {
+    const prod = store.get('SELECT * FROM products WHERE id=? AND active=1', i.product_id) || fail('Product not found');
+    const qty = num(i.qty, 'Quantity', { min: 0 });
+    if (qty <= 0) fail('Quantity must be greater than zero');
+    const cost = r2(num(i.cost_price, 'Cost price', { min: 0, allowEmpty: true }));
+    const d = date(i.date);
+    const useCost = cost || prod.cost_price;
+    const mv = store.run(
+      `INSERT INTO stock_moves(product_id,date,type,qty,cost_price,supplier,note) VALUES(?,?,?,?,?,?,?)`,
+      prod.id, d, 'purchase', qty, useCost, clean(i.supplier), clean(i.note)
+    );
+    store.run('UPDATE products SET stock = stock + ?, cost_price = CASE WHEN ? > 0 THEN ? ELSE cost_price END WHERE id = ?',
+      qty, cost, cost, prod.id);
+    return { prod: store.get('SELECT * FROM products WHERE id=?', prod.id), moveId: mv.id, amount: r2(qty * useCost), date: d };
+  }
   S.stockIn = (i) =>
     store.tx(() => {
-      const prod = store.get('SELECT * FROM products WHERE id=? AND active=1', i.product_id) || fail('Product not found');
-      const qty = num(i.qty, 'Quantity', { min: 0 });
-      if (qty <= 0) fail('Quantity must be greater than zero');
-      const cost = r2(num(i.cost_price, 'Cost price', { min: 0, allowEmpty: true }));
-      store.run(
-        `INSERT INTO stock_moves(product_id,date,type,qty,cost_price,supplier,note) VALUES(?,?,?,?,?,?,?)`,
-        prod.id, date(i.date), 'purchase', qty, cost || prod.cost_price, clean(i.supplier), clean(i.note)
-      );
-      store.run('UPDATE products SET stock = stock + ?, cost_price = CASE WHEN ? > 0 THEN ? ELSE cost_price END WHERE id = ?',
-        qty, cost, cost, prod.id);
-      return store.get('SELECT * FROM products WHERE id=?', prod.id);
+      const r = doStockIn(i);
+      if (clean(i.supplier) && i.paid !== undefined && i.paid !== null && i.paid !== '') {
+        const paid = r2(num(i.paid, 'Paid now', { min: 0, allowEmpty: true }));
+        trackPurchase(i.supplier, [r.moveId], [r.amount], paid, r.date, '');
+      }
+      return r.prod;
     });
 
   /** kind: 'breakage' (qty removed) or 'correction' (qty = the real counted stock). */
@@ -334,6 +469,14 @@ function createService(store) {
         q, newCost, date(i.date || m.date), i.supplier === undefined ? m.supplier : clean(i.supplier),
         i.note === undefined ? m.note : clean(i.note), m.id);
       store.run('UPDATE products SET stock = stock + ? WHERE id=?', delta, prod.id);
+      // if this maal was bought on karz, the karz follows the corrected quantity / cost / date / wholesaler
+      const kl = store.get(`SELECT id FROM supplier_ledger WHERE move_id=? AND type='purchase'`, m.id);
+      if (kl) {
+        store.run(`UPDATE supplier_ledger SET debit=?, date=?, edited_at=datetime('now','localtime') WHERE id=?`, r2(q * newCost), date(i.date || m.date), kl.id);
+        if (i.supplier !== undefined && clean(i.supplier) && clean(i.supplier).toLowerCase() !== clean(m.supplier).toLowerCase()) {
+          store.run('UPDATE supplier_ledger SET supplier_id=? WHERE id=?', ensureSupplier(i.supplier), kl.id);
+        }
+      }
       // the product's cost price follows the newest stock-in
       const latest = store.get(
         `SELECT id, cost_price FROM stock_moves WHERE product_id=? AND type IN ('purchase','opening') ORDER BY (type='purchase') DESC, date DESC, id DESC LIMIT 1`,
@@ -691,7 +834,10 @@ function createService(store) {
       if (s !== null && (!Number.isFinite(s) || s < 0 || s > 1e9)) fail(`Line ${i + 1} (${name}): sale price is invalid`);
       return { name, qty: q, cost: r2(c), sale_price: s === null ? null : r2(s) };
     });
-    return { id: b.id, date: b.date, supplier: clean(b.supplier).slice(0, 100), lines };
+    // paid = money paid to the wholesaler at once (0 = everything on karz). Absent = karz is not tracked.
+    const paid = b.paid === undefined || b.paid === null || b.paid === '' ? undefined : Number(b.paid);
+    if (paid !== undefined && (!Number.isFinite(paid) || paid < 0 || paid > 1e10)) fail('The paid amount in this list is invalid');
+    return { id: b.id, date: b.date, supplier: clean(b.supplier).slice(0, 100), paid: paid === undefined ? undefined : r2(paid), lines };
   }
 
   function findProduct(products, name) {
@@ -713,7 +859,7 @@ function createService(store) {
       return { index, ...l, match, suggestions };
     });
     return {
-      id: batch.id, date: batch.date, supplier: batch.supplier,
+      id: batch.id, date: batch.date, supplier: batch.supplier, paid: batch.paid,
       alreadyImported: done ? { imported_at: done.imported_at } : null,
       lines,
       totalQty: lines.reduce((s, l) => s + l.qty, 0),
@@ -733,6 +879,8 @@ function createService(store) {
       if (!Array.isArray(decisions) || decisions.length !== batch.lines.length) fail('Please review every line before importing');
       let created = 0;
       let skipped = 0;
+      const moveIds = [];
+      const moveAmts = [];
       let qtyAdded = 0;
       let amount = 0;
       batch.lines.forEach((l, i) => {
@@ -747,11 +895,13 @@ function createService(store) {
           productId = S.saveProduct({ name: l.name, cost_price: l.cost, sale_price: sale === null || sale === undefined ? 0 : sale, stock: 0 }).id;
           created++;
         } else fail(`Line ${i + 1}: please choose what to do`);
-        S.stockIn({ product_id: productId, qty: l.qty, cost_price: l.cost, supplier: batch.supplier, date: batch.date, note: `Phone list ${batch.id}` });
+        const r = doStockIn({ product_id: productId, qty: l.qty, cost_price: l.cost, supplier: batch.supplier, date: batch.date, note: `Phone list ${batch.id}` });
+        moveIds.push(r.moveId); moveAmts.push(r.amount);
         qtyAdded += l.qty;
         amount += l.qty * l.cost;
       });
       if (skipped === batch.lines.length) fail('Every line was skipped, so there is nothing to import');
+      if (batch.supplier && batch.paid !== undefined) trackPurchase(batch.supplier, moveIds, moveAmts, batch.paid, batch.date, `Paid at purchase (phone list ${batch.id})`);
       store.run(
         'INSERT INTO purchase_imports(id,batch_date,supplier,lines,total_qty,total_amount) VALUES(?,?,?,?,?,?)',
         batch.id, batch.date, batch.supplier, batch.lines.length - skipped, qtyAdded, r2(amount)
@@ -820,6 +970,20 @@ function createService(store) {
       return { n: c.name, p: c.phone || '', b: c.balance, e };
     }).sort((a, b) => b.b - a.b);
   };
+
+  /** Wholesalers we owe money to (and all wholesaler names) for the phone page. */
+  S.exportKarzForPhone = () => {
+    const rows = S.listSuppliers({ onlyDue: true }).slice(0, 300);
+    return rows.map((s) => {
+      const e = store.all(
+        `SELECT l.date, l.type, l.debit, l.credit, l.note, p.name AS product, m.qty AS q FROM supplier_ledger l
+         LEFT JOIN stock_moves m ON m.id=l.move_id LEFT JOIN products p ON p.id=m.product_id
+         WHERE l.supplier_id=? ORDER BY l.date DESC, l.id DESC LIMIT 6`, s.id)
+        .map((x) => ({ d: x.date, t: x.type, db: x.debit, cr: x.credit, n: String(x.product ? `${x.product} × ${x.q}` : x.note || '').slice(0, 60) }));
+      return { n: s.name, p: s.phone || '', b: s.balance, e };
+    });
+  };
+  S.exportSupplierNamesForPhone = () => store.all('SELECT name FROM suppliers WHERE active=1 ORDER BY name COLLATE NOCASE LIMIT 300').map((r) => r.name);
 
   S.dbInfo = () => ({
     file: store.file,

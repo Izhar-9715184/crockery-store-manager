@@ -83,6 +83,8 @@ class StockSync {
     obj.ts = new Date().toISOString();
     try { obj.shop = String(this.service.getSettings().shop_name || '').slice(0, 60); } catch (_) { /* optional */ }
     if (this.s.udhar !== false) obj.cust = this.service.exportUdharForPhone();    // names + balances of customers who owe money
+    if (this.s.udhar !== false) obj.karz = this.service.exportKarzForPhone();     // wholesalers we owe money to
+    obj.sups = this.service.exportSupplierNamesForPhone();
     obj.custAll = this.service.exportCustomersForPhone(this.s.udhar !== false);   // for bills written on the phone
     obj.imported = this.service.importedBatchIds();
     obj.billsDone = this.service.phoneBillIds();   // lets the phone know which of its lists are already counted

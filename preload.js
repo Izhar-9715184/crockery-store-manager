@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('sys', {
   installUpdate: () => ipcRenderer.invoke('sys:installUpdate'),
   backupTo: () => ipcRenderer.invoke('sys:backupTo'),
   restore: () => ipcRenderer.invoke('sys:restore'),
+  readStyles: () => ipcRenderer.invoke('sys:readStyles'),
+  saveFile: (o) => ipcRenderer.invoke('sys:saveFile', o),
   openBackups: () => ipcRenderer.invoke('sys:openBackups'),
   mobileStatus: () => ipcRenderer.invoke('sys:mobileStatus'),
   mobileApply: (opts) => ipcRenderer.invoke('sys:mobileApply', opts),

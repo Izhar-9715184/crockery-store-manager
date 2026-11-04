@@ -40,7 +40,7 @@ App.pages.sale = {
               <div style="display:flex;gap:8px;margin-top:10px">
                 <button class="btn" id="clear">Clear</button>
                 <button class="btn teal grow" id="save" style="flex:1">Save</button>
-                <button class="btn primary" id="savePrint" style="flex:1.3">Save &amp; Print</button>
+                <button class="btn primary" id="savePrint" style="flex:1.3">Save &amp; Receipt</button>
               </div>
             </div>
           </div>
@@ -155,7 +155,7 @@ App.pages.sale = {
     if (cart.editing) {
       el('editBanner').innerHTML = `<div class="edit-banner"><span class="grow">Editing bill ${esc(cart.editing.invoice_no)} — change what is wrong, then press Save changes.</span><button class="btn sm" id="cancelEdit">Cancel edit</button></div>`;
       el('save').textContent = 'Save changes';
-      el('savePrint').textContent = 'Save changes & Print';
+      el('savePrint').textContent = 'Save changes & Receipt';
       el('clear').style.display = 'none';
       el('cancelEdit').addEventListener('click', () => { App.cart = null; App.go('sales'); });
     }
@@ -174,7 +174,7 @@ App.pages.sale = {
         const sale = cart.editing ? await rpc('updateSale', cart.editing.id, payload) : await rpc('createSale', payload);
         const wasEdit = !!cart.editing;
         toast(`${wasEdit ? 'Updated' : 'Saved'} ${sale.invoice_no} · ${money(sale.total)}${sale.due > 0 ? ' · udhar ' + money(sale.due) : ''}`, 'ok');
-        if (print) printSale(sale);
+        if (print) showInvoice(sale.id);   // shows the receipt first: Print / Save as PDF / Save as picture
         App.cart = null;
         App.go(wasEdit ? 'sales' : 'sale');
       });

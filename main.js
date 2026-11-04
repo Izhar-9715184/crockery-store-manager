@@ -277,6 +277,20 @@ function registerIpc() {
   ipcMain.handle('sys:stockSyncUdhar', (_e, on) => needSync().setUdhar(on));
   ipcMain.handle('sys:stockSyncWaiting', async () => { if (!stockSync) return []; await stockSync.poll().catch(() => {}); return stockSync.waitingList(); });
 
+  // receipt as picture / PDF: the screen sends the finished file, the owner chooses where to keep it
+  ipcMain.handle('sys:readStyles', () => { try { return fs.readFileSync(path.join(__dirname, 'src', 'renderer', 'styles.css'), 'utf8'); } catch (_) { return ''; } });
+  ipcMain.handle('sys:saveFile', async (_e, o) => {
+    const name = String((o && o.name) || 'receipt').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 120);
+    const kind = o && o.kind === 'pdf' ? 'pdf' : 'png';
+    const r = await dialog.showSaveDialog(win, {
+      defaultPath: path.join(app.getPath('documents'), name),
+      filters: [kind === 'pdf' ? { name: 'PDF file', extensions: ['pdf'] } : { name: 'Picture (PNG)', extensions: ['png'] }],
+    });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, Buffer.from(String(o.base64 || ''), 'base64'));
+    shell.showItemInFolder(r.filePath);
+    return r.filePath;
+  });
   ipcMain.handle('sys:openBackups', () => shell.openPath(store.backupsDir));
 
   // ---- mobile access (phone app)
