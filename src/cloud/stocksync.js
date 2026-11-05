@@ -87,6 +87,7 @@ class StockSync {
     obj.sups = this.service.exportSupplierNamesForPhone();
     obj.custAll = this.service.exportCustomersForPhone(this.s.udhar !== false);   // for bills written on the phone
     obj.imported = this.service.importedBatchIds();
+    obj.paysDone = this.service.phonePaymentIds();   // payments taken on the phone that the laptop has counted
     obj.billsDone = this.service.phoneBillIds();   // lets the phone know which of its lists are already counted
     return { content: await StockCrypto.encrypt(obj, this.s.pass), count: out.count };
   }
@@ -137,6 +138,18 @@ class StockSync {
     const remove = {};
     let imported = false;
     for (const [name, f] of Object.entries(g.files || {})) {
+      if (/^pay-[\w-]+\.json$/.test(name) && f && !f.truncated) {
+        let b = null;
+        try {
+          b = await StockCrypto.decrypt(f.content, this.s.pass);
+          const r = this.service.receivePaymentFromPhone(b);
+          remove[name] = null;
+          if (r.status === 'created') imported = true;
+        } catch (e) {
+          billErrors.push({ name, id: b && b.id, error: e.message, customer: `${b && b.cn ? b.cn : '?'} (payment)`, total: b && Number(b.amount) || 0 });
+        }
+        continue;
+      }
       if (/^bill-[\w-]+\.json$/.test(name) && f && !f.truncated) {
         let b = null;
         try {
@@ -167,7 +180,7 @@ class StockSync {
   }
   /** Remove a phone bill that cannot be made (the owner will write it again by hand if needed). */
   async dismissBill(name) {
-    if (!/^bill-[\w-]+\.json$/.test(name)) throw new Error('Not a phone bill');
+    if (!/^(bill|pay)-[\w-]+\.json$/.test(name)) throw new Error('Not a phone bill');
     await this._req('PATCH', `/gists/${this.s.gistId}`, { files: { [name]: null } }, this.s.token);
     this.billErrors = this.billErrors.filter((b) => b.name !== name);
     return this.status();

@@ -187,7 +187,12 @@ const MIGRATIONS = [
   CREATE INDEX idx_supledger_supplier ON supplier_ledger(supplier_id);
   CREATE INDEX idx_supledger_move ON supplier_ledger(move_id);
   `,
-  // ---- v6, v7 ... add future changes here (never edit the ones above) ------
+  // ---- v6: payments received on the phone (applied once, by their phone id) -------------
+  `
+  ALTER TABLE ledger ADD COLUMN phone_id TEXT;
+  CREATE UNIQUE INDEX idx_ledger_phone_id ON ledger(phone_id) WHERE phone_id IS NOT NULL;
+  `,
+  // ---- v7, v8 ... add future changes here (never edit the ones above) ------
 ];
 
 

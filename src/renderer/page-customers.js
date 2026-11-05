@@ -157,7 +157,7 @@ async function openLedger(id, onChange) {
         <div style="text-align:right"><div class="muted small">${c.balance < 0 ? 'Advance (you owe customer)' : 'Udhar pending'}</div>
           <div style="font-size:26px;font-weight:700" class="num ${c.balance > 0 ? 'red' : 'teal'}">${money(Math.abs(c.balance))}</div></div></div>
       <div class="toolbar"><button class="btn primary" data-a="pay">Receive payment</button><button class="btn" data-a="adj">Correct balance</button>
-        <button class="btn" data-a="print">Print statement</button></div>
+        <button class="btn" data-a="print">Statement (print / PDF / picture)</button></div>
       <div class="card table-card"><table><thead><tr><th>Date</th><th>Details</th><th class="r">Udhar</th><th class="r">Paid</th><th class="r">Balance</th><th></th></tr></thead><tbody>
         ${led.entries.map((e) => `<tr><td class="nowrap">${esc(fmtDate(e.date))}</td><td>${esc(e.note || e.type)}${e.edited_at ? '<span class="edited-tag" title="Edited ' + esc(e.edited_at) + '">edited</span>' : ''}${e.method && e.type === 'payment' ? ` <span class="muted small">(${esc(e.method)})</span>` : ''}</td>
           <td class="r num ${e.debit ? 'red' : ''}">${e.debit ? qty(e.debit) : ''}</td><td class="r num ${e.credit ? 'teal' : ''}">${e.credit ? qty(e.credit) : ''}</td>
@@ -192,7 +192,7 @@ async function openLedger(id, onChange) {
     const c = m.ledger.customer;
     if (b.dataset.a === 'pay') receivePaymentDialog(c, refresh);
     if (b.dataset.a === 'adj') adjustCustomerDialog(c, refresh);
-    if (b.dataset.a === 'print') printHtml(statementHtml(m.ledger));
+    if (b.dataset.a === 'print') showStatement(m.ledger);   // preview first: Print / Save as PDF / Save as picture
   });
   await render();
 }

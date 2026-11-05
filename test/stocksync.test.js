@@ -156,3 +156,31 @@ test('phone bill arrives online: made at once, never twice; a bill that cannot b
     assert.equal(ss.status().billErrors.length, 0);
   } finally { srv.close(); store.close(); }
 });
+
+test('payment taken on the phone: added to the ledger once, shown as counted, bad one stays visible', async () => {
+  const { srv, gists, api } = await fakeGithub();
+  const { store, service, ss } = setup(api);
+  try {
+    const st = await ss.connect('ghp_goodtoken_goodtoken_1234');
+    const pass = st.link.split('#sync=')[1].split('&')[0].split('.')[1];
+    const gid = 'a'.repeat(32);
+    service.addOldBalance({ name: 'Ali', amount: 1000 });
+    const ok = { v: 1, id: 'py-ok0001', date: '2026-11-05', cn: 'ali', amount: 400, method: 'cash', note: 'at the gate' };
+    const bad = { v: 1, id: 'py-bad001', date: '2026-11-05', cn: 'Nobody', amount: 50, method: 'cash' };
+    gists[gid]['pay-py-ok0001.json'] = { content: await StockCrypto.encrypt(ok, pass) };
+    gists[gid]['pay-py-bad001.json'] = { content: await StockCrypto.encrypt(bad, pass) };
+    await ss.poll();
+    assert.equal(service.listCustomers({}).find((c) => c.name === 'Ali').balance, 600);
+    assert.ok(!gists[gid]['pay-py-ok0001.json']);
+    assert.ok(gists[gid]['pay-py-bad001.json']);
+    assert.match(ss.status().billErrors[0].error, /not found/);
+    const snap = await StockCrypto.decrypt(gists[gid]['stock.json'].content, pass);
+    assert.ok(snap.paysDone.includes('py-ok0001'));
+    assert.equal(snap.cust.find((c) => c.n === 'Ali').b, 600);
+    gists[gid]['pay-py-ok0001.json'] = { content: await StockCrypto.encrypt(ok, pass) };   // sent twice
+    await ss.poll();
+    assert.equal(service.listCustomers({}).find((c) => c.name === 'Ali').balance, 600);
+    await ss.dismissBill('pay-py-bad001.json');
+    assert.equal(ss.status().billErrors.length, 0);
+  } finally { srv.close(); store.close(); }
+});

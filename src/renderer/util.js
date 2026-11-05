@@ -362,6 +362,27 @@ async function saveReceipt(el, kind, baseName) {
 function printSale(sale) { printHtml(invoiceHtml(sale), paperOf()); }
 
 /** Preview of a bill with a paper-size picker and Print / Cancel-sale buttons. */
+/** Statement of a customer's udhar: shown first, then Print / Save as PDF / Save as picture. */
+function showStatement(led) {
+  const m = modal({
+    title: `Statement — ${led.customer.name}`,
+    wide: true,
+    body: `<div class="preview-wrap"><div class="preview a4">${statementHtml(led)}</div></div>
+      <p class="muted small" style="margin:10px 0 0"><b>Save as PDF</b> or <b>Save as picture</b> makes a file you can send to the customer (WhatsApp, email). <b>Print</b> sends it to your printer.</p>`,
+    actions: [
+      { label: 'Close' },
+      { label: 'Save as PDF', kind: 'teal', close: false, onClick: () => doSave('pdf') },
+      { label: 'Save as picture', kind: 'teal', close: false, onClick: () => doSave('png') },
+      { label: 'Print', kind: 'primary', close: false, onClick: () => printHtml(statementHtml(led)) },
+    ],
+  });
+  const doSave = (kind) => safe(async () => {
+    const p = await saveReceipt($('.preview .inv', m.body), kind, `Statement-${led.customer.name}-${today()}`);
+    if (p) toast(`Saved: ${p}`, 'ok');
+  });
+  return m;
+}
+
 async function showInvoice(saleId, { onChange } = {}) {
   const sale = await rpc('getSale', saleId);
   let paper = paperOf();

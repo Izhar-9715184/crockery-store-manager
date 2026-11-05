@@ -215,6 +215,33 @@ function pagesServer() {
     await p2.screenshot({ path: path.join(shots, 'p6b-karz.png') });
     await p2.click('#um_seg [data-m=udhar]');
     assert.match(await p2.textContent('#udharTotal'), /6,000/);
+    // take a payment on the phone (away from the shop)
+    await p2.fill('#u_q', 'ali');
+    await p2.click('#u_list .ccard');
+    await p2.click('#cu_recv');
+    assert.equal(await p2.inputValue('#rv_amt'), '5200');
+    await p2.fill('#rv_amt', '9999');
+    await p2.click('#rv_save');
+    assert.ok(await p2.locator('.toast:has-text("More than the udhar")').count());
+    await p2.fill('#rv_amt', '1200');
+    await p2.click('#rv_m [data-m=bank]');
+    await p2.fill('#rv_note', 'at the gate');
+    await p2.waitForTimeout(300);
+    await p2.screenshot({ path: path.join(shots, 'p6c-receive.png') });
+    await p2.click('#rv_save');
+    await p2.waitForFunction(() => document.body.textContent.includes('Payment received (this phone)'));
+    assert.match(await p2.textContent('.sheet'), /4,000/);
+    await p2.screenshot({ path: path.join(shots, 'p6d-received.png') });
+    await p2.click('.sheet header button');
+    assert.match(await p2.textContent('#udharTotal'), /4,800/);
+    {
+      const pu = uploads.find((u) => Object.keys(u.body.files)[0].startsWith('pay-'));
+      assert.ok(pu, 'the payment was sent online');
+      const { StockCrypto: SC } = { StockCrypto: require('../docs/stockcrypto.js') };
+      const got = await SC.decrypt(Object.values(pu.body.files)[0].content, pass);
+      assert.equal(got.amount, 1200); assert.equal(got.cn, 'Ali Khan'); assert.equal(got.method, 'bank'); assert.equal(got.note, 'at the gate');
+    }
+    await p2.fill('#u_q', '');
     await p2.click('[data-tab=maal]');
     assert.ok((await p2.locator('#suppliers option').count()) >= 2, 'wholesaler names from the laptop are suggested');
     await p2.waitForTimeout(400);

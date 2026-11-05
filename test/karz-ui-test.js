@@ -148,6 +148,31 @@ fs.mkdirSync(shots, { recursive: true });
   await page.click('.modal footer button:has-text("Print")');
   await page.waitForFunction(() => window.__printed === 1);
 
+  await page.click('.modal footer button:has-text("Close")');
+
+  // ===== D) customer statement: preview first, then Print / PDF / picture
+  await nav('Customers');
+  await page.waitForSelector('#rows tr');
+  await page.click('#rows tr:has-text("Ali Khan") button[data-a=ledger]');
+  await page.waitForSelector('.modal button[data-a=print]');
+  await page.click('.modal button[data-a=print]');
+  await page.waitForSelector('.modal .preview .inv');
+  assert.equal(await page.evaluate(() => window.__printed), 1, 'statement is not printed before choosing (still only the bill print)');
+  assert.match(await page.textContent('.modal .preview'), /STATEMENT/i);
+  for (const b of ['Save as PDF', 'Save as picture', 'Print']) assert.ok(await page.locator(`.modal footer button:has-text("${b}")`).last().count(), b);
+  await shot('k6-statement');
+  await page.evaluate(() => { window.__saved = []; });
+  await page.locator('.modal footer button:has-text("Save as PDF")').last().click();
+  await page.waitForFunction(() => (window.__saved || []).length === 1, null, { timeout: 10000 });
+  await page.locator('.modal footer button:has-text("Save as picture")').last().click();
+  await page.waitForFunction(() => (window.__saved || []).length === 2, null, { timeout: 10000 });
+  const st = await page.evaluate(() => window.__saved);
+  assert.match(st[0].name, /^Statement-Ali_Khan.*\.pdf$/);
+  assert.equal(Buffer.from(st[0].base64, 'base64').slice(0, 5).toString(), '%PDF-');
+  assert.equal(Buffer.from(st[1].base64, 'base64').slice(1, 4).toString(), 'PNG');
+  await page.locator('.modal footer button:has-text("Print")').last().click();
+  await page.waitForFunction(() => window.__printed === 2);
+
   await browser.close();
   assert.deepEqual(errors, []);
   console.log('KARZ + RECEIPT UI TEST OK  screenshots:', shots);

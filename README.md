@@ -244,3 +244,9 @@ Settings -> **Stock online for the phone**: GitHub token (sirf "gist" permission
 - **Wholesale Karz** (new page in the sidebar): what you owe each wholesaler. Add stock with a wholesaler name and choose *Karz*, *Fully paid* or *Part paid*; the unpaid part is added to that wholesaler's account. Pay him back from the page (*Pay*), and add old karz from the paper register (*Add Old Karz*). Editing a stock-in entry corrects the karz too.
 - **Phone:** the Maal entry has the same Karz / Paid / Part paid choice (sent with the list, recorded when the laptop imports it). The *Udhar* tab now has two buttons: *Customer udhar* and *Wholesale karz*.
 - **Receipts:** *Save & Receipt* shows the bill first. From there choose **Save as PDF**, **Save as picture** or **Print** — nothing is printed until you press Print. The phone shows the same receipt after a bill (and from "Bills sent from this phone") with **Share (WhatsApp)**, **Save picture** and **Save PDF**.
+
+## v1.1.6 additions
+
+- **Customer statement:** *Statement (print / PDF / picture)* in a customer's ledger shows the statement first; then choose Print, Save as PDF or Save as picture.
+- **Payment received on the phone:** Udhar tab → customer → *Payment received*. It works without internet; the phone sends it online and the laptop adds it to the customer's ledger by itself (never twice). Until the laptop has counted it, the phone already shows the reduced udhar.
+- The phone page now reloads itself once when a new version is installed (no more "refresh twice").

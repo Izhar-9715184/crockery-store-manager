@@ -29,9 +29,9 @@
   function load() {
     try {
       const o = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null, udhar: o.udhar || null, karz: o.karz || null, sups: Array.isArray(o.sups) ? o.sups : [], custAll: Array.isArray(o.custAll) ? o.custAll : [], bills: Array.isArray(o.bills) ? o.bills : [], cart: o.cart || null };
+      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null, udhar: o.udhar || null, karz: o.karz || null, pays: Array.isArray(o.pays) ? o.pays : [], sups: Array.isArray(o.sups) ? o.sups : [], custAll: Array.isArray(o.custAll) ? o.custAll : [], bills: Array.isArray(o.bills) ? o.bills : [], cart: o.cart || null };
     } catch (e) { /* first run or storage blocked */ }
-    return { batches: [], currentId: null, suppliers: [], products: null, sync: null, udhar: null, karz: null, sups: [], custAll: [], bills: [], cart: null };
+    return { batches: [], currentId: null, suppliers: [], products: null, sync: null, udhar: null, karz: null, pays: [], sups: [], custAll: [], bills: [], cart: null };
   }
   let data = load();
   function save() {
@@ -150,11 +150,12 @@
         if (x.q !== undefined && Number.isFinite(Number(x.q))) { o.q = Number(x.q); o.u = String(x.u || '').slice(0, 20); }
         return o;
       });
-      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null, shop: obj.shop || '', imported: Array.isArray(obj.imported) ? obj.imported.slice(0, 400) : [], billsDone: Array.isArray(obj.billsDone) ? obj.billsDone.slice(0, 400) : [] };
+      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null, shop: obj.shop || '', imported: Array.isArray(obj.imported) ? obj.imported.slice(0, 400) : [], billsDone: Array.isArray(obj.billsDone) ? obj.billsDone.slice(0, 400) : [], paysDone: Array.isArray(obj.paysDone) ? obj.paysDone.slice(0, 400) : [] };
       data.custAll = Array.isArray(obj.custAll) ? obj.custAll.slice(0, 1500).map((c) => ({ i: Number(c.i), n: String(c.n).slice(0, 120), p: String(c.p || '').slice(0, 30), b: c.b === undefined ? null : Number(c.b) })) : [];
       data.udhar = Array.isArray(obj.cust) ? { list: obj.cust.slice(0, 400), ts: obj.ts || null } : null;
       data.karz = Array.isArray(obj.karz) ? { list: obj.karz.slice(0, 300), ts: obj.ts || null } : null;
       data.sups = Array.isArray(obj.sups) ? obj.sups.slice(0, 300).map((x) => String(x).slice(0, 100)) : [];
+      data.pays = (data.pays || []).filter((x) => x.status === 'pending' || !(data.products.paysDone || []).includes(x.id) || Date.now() - x.at < 3 * 86400000).slice(0, 60);
       data.bills = data.bills.filter((bl) => bl.status === 'pending' || !(data.products.billsDone || []).includes(bl.id) || Date.now() - bl.at < 3 * 86400000).slice(0, 30);
       save(); renderFields(); updateHint(); renderStock(); renderUdhar(); renderBill();
       syncMsg = `Updated online · ${items.length} products`;
@@ -564,7 +565,22 @@
     bl.status = 'sent';
     save();
   }
+  async function uploadPay(py) {
+    if (!data.sync || !data.sync.key) throw new Error('This phone is not connected for sending. Open the link from the laptop again.');
+    if (!navigator.onLine) throw new Error('offline');
+    const content = await self.StockCrypto.encrypt({ v: 1, id: py.id, date: py.date, cn: py.cn, amount: py.amount, method: py.method, note: py.note }, data.sync.pass);
+    const r = await fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: { ['pay-' + py.id + '.json']: { content } } }) });
+    if (!r.ok) throw new Error(r.status === 401 ? 'The key in the link is not accepted. Open a fresh link from the laptop.' : `Could not send (${r.status}). Try again.`);
+    py.status = 'sent';
+    save();
+  }
+  /** Payments taken on this phone that the laptop has not counted yet (they are taken off the balance shown here). */
+  const counted = () => new Set((data.products && data.products.paysDone) || []);
+  const waitingPays = (name) => (data.pays || []).filter((x) => !counted().has(x.id) && (!name || x.cn.toLowerCase() === String(name).toLowerCase()));
+  const owedNow = (c) => Math.max(0, +(c.b - waitingPays(c.n).reduce((s, x) => s + x.amount, 0)).toFixed(2));
   async function sendPending() {
+    for (const py of (data.pays || []).filter((x) => x.status === 'pending')) { try { await uploadPay(py); } catch (e) { break; } }
     for (const bl of data.bills.filter((x) => x.status === 'pending')) { try { await uploadBill(bl); } catch (e) { break; } }
     renderBill(); renderStock();
   }
@@ -654,27 +670,59 @@
       $('#u_list').innerHTML = `<div class="empty">${CUP}<b>${data.sync ? (karz ? 'Karz not received yet' : 'Udhar is switched off') : 'Connect the laptop first'}</b><br>${data.sync ? (karz ? 'Update the laptop software, then in Settings press “Send stock now”, and refresh here.' : 'At the laptop: Settings → Stock online for the phone → tick “Also show udhar on the phone”.') : 'Open the link from the laptop (Settings → Stock online for the phone) on this phone.'}</div>`;
       return;
     }
-    const total = u.list.reduce((s, c) => s + c.b, 0);
+    const bal = (c) => (karz ? c.b : owedNow(c));
+    const total = u.list.reduce((s, c) => s + bal(c), 0);
     $('#udharTotal').textContent = money(total);
     $('#udharSub').textContent = karz ? `You owe ${u.list.length} wholesaler${u.list.length === 1 ? '' : 's'}${u.ts ? ' · as of ' + fmtTs(u.ts) : ''}`
       : `${u.list.length} customer${u.list.length === 1 ? '' : 's'} owe you${u.ts ? ' · as of ' + fmtTs(u.ts) : ''}`;
     const q = norm($('#u_q').value);
     const rows = u.list.filter((c) => !q || norm(c.n).includes(q) || String(c.p).includes(q));
     $('#u_list').innerHTML = rows.map((c) => `<button class="pcard ccard" data-c="${u.list.indexOf(c)}"><div class="top2"><div class="who">${avatar(c.n)}
-      <div style="min-width:0"><div class="nm">${esc(c.n)}</div><div class="meta">${esc(c.p || 'no phone')}</div></div></div><div class="bal">${fmt(c.b)}<small>Rs</small></div></div></button>`).join('')
+      <div style="min-width:0"><div class="nm">${esc(c.n)}</div><div class="meta">${esc(c.p || 'no phone')}</div></div></div><div class="bal">${fmt(bal(c))}<small>Rs</small></div></div></button>`).join('')
       || (u.list.length ? '<div class="empty">Nobody found.</div>' : `<div class="empty">${CUP}<b>${karz ? 'You owe nobody anything' : 'Nobody owes you anything'}</b></div>`);
   }
   function openCustomer(c) {
     const karz = uMode === 'karz';
+    const mine = karz ? [] : waitingPays(c.n);
     const typ = karz ? { opening: 'Old karz', purchase: 'Maal on karz', payment: 'Paid to him', adjust: 'Correction' }
       : { opening: 'Old balance', credit_sale: 'Bill (udhar)', payment: 'Payment received', sale_cancel: 'Bill cancelled', adjust: 'Correction' };
     const s = sheet(c.n, `
-      <div class="item-row" style="display:flex;justify-content:space-between;align-items:center"><div class="muted small">${karz ? 'You owe him (karz)' : 'Udhar pending'}</div><div style="font-size:26px;font-weight:800;color:var(--red)">${money(c.b)}</div></div>
+      <div class="item-row" style="display:flex;justify-content:space-between;align-items:center"><div class="muted small">${karz ? 'You owe him (karz)' : 'Udhar pending'}</div><div style="font-size:26px;font-weight:800;color:var(--red)">${money(karz ? c.b : owedNow(c))}</div></div>
+      ${karz ? '' : '<button class="btn primary block big" id="cu_recv">Payment received</button>'}
       ${c.p ? `<a class="btn primary block call" href="tel:${esc(String(c.p).replace(/[^+\d]/g, ''))}">Call ${esc(c.p)}</a>` : ''}
       <h2 style="margin:16px 2px 8px;font-size:15px">Latest entries</h2>
-      <div class="item-row" style="padding-top:2px;padding-bottom:2px">${c.e.length ? c.e.map((x) => `<div class="entry"><div><b>${esc(typ[x.t] || x.t)}</b><div class="muted small">${esc(nice(x.d))}${x.n ? ' · ' + esc(x.n) : ''}</div></div>
-        <div class="${x.db ? 'plus' : 'minus'}">${x.db ? '+' + fmt(x.db) : '−' + fmt(x.cr)}</div></div>`).join('') : '<div class="muted small" style="padding:10px 0">No entries.</div>'}</div>`);
+      <div class="item-row" style="padding-top:2px;padding-bottom:2px">${mine.map((x) => `<div class="entry"><div><b>Payment received (this phone)</b><div class="muted small">${esc(nice(x.date))} · ${x.status === 'sent' ? 'sent — the laptop will count it' : 'waiting for internet'}</div></div><div class="minus">−${fmt(x.amount)}</div></div>`).join('')}${c.e.length ? c.e.map((x) => `<div class="entry"><div><b>${esc(typ[x.t] || x.t)}</b><div class="muted small">${esc(nice(x.d))}${x.n ? ' · ' + esc(x.n) : ''}</div></div>
+        <div class="${x.db ? 'plus' : 'minus'}">${x.db ? '+' + fmt(x.db) : '−' + fmt(x.cr)}</div></div>`).join('') : (mine.length ? '' : '<div class="muted small" style="padding:10px 0">No entries.</div>')}</div>`);
+    const rb = $('#cu_recv', s.el);
+    if (rb) rb.addEventListener('click', () => { s.close(); receiveSheet(c); });
     return s;
+  }
+
+  /** Take a payment from a customer on the phone (works without internet; the laptop counts it when it can). */
+  function receiveSheet(c) {
+    const due = owedNow(c);
+    const s = sheet(`Payment from ${c.n}`, `
+      <div class="item-row" style="display:flex;justify-content:space-between;align-items:center"><div class="muted small">Udhar pending</div><div style="font-size:24px;font-weight:800;color:var(--red)">${money(due)}</div></div>
+      <label class="f"><span>Amount received (Rs)</span><input id="rv_amt" type="text" inputmode="decimal" value="${due || ''}"></label>
+      <div class="seg2" id="rv_m" style="margin:4px 0 8px"><button type="button" class="chip on" data-m="cash">Cash</button><button type="button" class="chip" data-m="bank">Bank</button><button type="button" class="chip" data-m="wallet">EasyPaisa / JazzCash</button></div>
+      <label class="f"><span>Note (optional)</span><input id="rv_note" type="text"></label>
+      <button class="btn primary block big" id="rv_save">Save payment</button>`);
+    let method = 'cash';
+    $('#rv_m', s.el).addEventListener('click', (e) => { const b = e.target.closest('[data-m]'); if (!b) return; method = b.dataset.m; s.el.querySelectorAll('#rv_m button').forEach((x) => x.classList.toggle('on', x === b)); });
+    $('#rv_save', s.el).addEventListener('click', async () => {
+      const amount = num($('#rv_amt', s.el).value);
+      if (!(amount > 0)) return toast('Enter the amount received', true);
+      if (amount > due + 0.009) return toast(`More than the udhar (${money(due)})`, true);
+      const py = { id: 'py-' + rid().slice(2), at: Date.now(), date: ymd(new Date()), cn: c.n, amount, method, note: $('#rv_note', s.el).value.trim(), status: 'pending' };
+      data.pays.unshift(py); save();
+      s.close();
+      let msg = 'Saved. It will be sent when the phone has internet.';
+      try { await uploadPay(py); msg = 'Saved and sent. The laptop adds it to the ledger by itself.'; } catch (e) { if (e.message !== 'offline') msg = e.message; }
+      toast(msg);
+      renderUdhar();
+      const fresh = data.udhar && data.udhar.list.find((x) => x.n === c.n);
+      if (fresh) openCustomer(fresh);
+    });
   }
 
   function openProducts() {
@@ -798,6 +846,11 @@
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
 
     if ('serviceWorker' in navigator) {
+      // a new version of the page was installed: show it at once (once), instead of after a second refresh
+      if (navigator.serviceWorker.controller) {
+        let reloaded = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded) { reloaded = true; location.reload(); } });
+      }
       navigator.serviceWorker.register('sw.js')
         .then(() => navigator.serviceWorker.ready)
         .then(() => { offlineReady = true; setStatus(); })
