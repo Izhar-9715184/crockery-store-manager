@@ -70,6 +70,77 @@
     return c;
   }
 
+
+  const hdr = (g, W, shop, left, right, sub) => {
+    const hg = g.createLinearGradient(0, 0, W, 130);
+    hg.addColorStop(0, '#4a0f20'); hg.addColorStop(1, '#9f1f3f');
+    g.fillStyle = hg; g.fillRect(0, 0, W, 120);
+    g.fillStyle = '#d9a94a'; g.fillRect(0, 120, W, 4);
+    g.textBaseline = 'alphabetic'; g.textAlign = 'left'; g.fillStyle = '#fdf3d0';
+    g.font = `800 28px ${FONT}`; g.fillText(String(shop || 'Shop').slice(0, 28), 28, 56);
+    g.font = `700 14px ${FONT}`; g.fillStyle = 'rgba(253,243,208,.85)'; g.fillText(left, 28, 84);
+    g.textAlign = 'right'; g.font = `700 15px ${FONT}`; g.fillStyle = '#fdf3d0'; g.fillText(right, W - 28, 56);
+    g.font = `500 13px ${FONT}`; g.fillStyle = 'rgba(253,243,208,.75)'; g.fillText(sub || '', W - 28, 84);
+    g.textAlign = 'left';
+  };
+  /** One payment: o = { kind:'received'|'paid', name, amount, method, date, note, after } */
+  function drawPayment(o, shop) {
+    const S = 2, W = 600, H = 470;
+    const c = document.createElement('canvas');
+    c.width = W * S; c.height = H * S;
+    const g = c.getContext('2d'); g.scale(S, S);
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    const rec = o.kind === 'received';
+    hdr(g, W, shop, rec ? 'PAYMENT RECEIPT' : 'PAYMENT MADE', nice(o.date), '');
+    g.fillStyle = '#7a7466'; g.font = `700 12px ${FONT}`; g.fillText(rec ? 'RECEIVED FROM' : 'PAID TO', 28, 160);
+    g.fillStyle = '#14261f'; g.font = `800 24px ${FONT}`; g.fillText(String(o.name).slice(0, 32), 28, 192);
+    g.fillStyle = rec ? '#0b7a62' : '#9f1f3f'; g.fillRect(28, 216, W - 56, 86);
+    g.fillStyle = 'rgba(255,255,255,.85)'; g.font = `700 13px ${FONT}`; g.fillText(rec ? 'AMOUNT RECEIVED' : 'AMOUNT PAID', 46, 244);
+    g.fillStyle = '#fff'; g.font = `800 36px ${FONT}`; g.fillText('Rs ' + fmt(o.amount), 46, 286);
+    let y = 336;
+    const row = (k, v, bold) => { g.fillStyle = '#7a7466'; g.font = `600 15px ${FONT}`; g.textAlign = 'left'; g.fillText(k, 28, y);
+      g.fillStyle = '#14261f'; g.font = `${bold ? 800 : 600} 16px ${FONT}`; g.textAlign = 'right'; g.fillText(v, W - 28, y); y += 32; };
+    row('Method', ({ cash: 'Cash', bank: 'Bank transfer', wallet: 'EasyPaisa / JazzCash', cheque: 'Cheque' })[o.method] || o.method || 'Cash');
+    if (o.note) row('Note', String(o.note).slice(0, 36));
+    if (o.after !== undefined && o.after !== null) row(rec ? 'Udhar remaining' : 'Karz remaining', o.after > 0 ? 'Rs ' + fmt(o.after) : 'Nil — cleared', true);
+    g.textAlign = 'center'; g.fillStyle = '#b57a22'; g.font = `800 16px ${FONT}`;
+    g.fillText(rec ? 'Thank you!' : 'Payment made with thanks', W / 2, H - 26);
+    return c;
+  }
+  /** Account details of one person: o = { name, phone, entries:[{d,label,db,cr}], balance, kind:'udhar'|'karz' } */
+  function drawStatement(o, shop) {
+    const S = 2, W = 600, n = o.entries.length;
+    const H = 150 + 100 + 38 + n * 44 + 110;
+    const c = document.createElement('canvas');
+    c.width = W * S; c.height = H * S;
+    const g = c.getContext('2d'); g.scale(S, S);
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    hdr(g, W, shop, o.kind === 'karz' ? 'ACCOUNT OF KARZ' : 'ACCOUNT OF UDHAR', nice(o.date), '');
+    g.fillStyle = '#7a7466'; g.font = `700 12px ${FONT}`; g.fillText(o.kind === 'karz' ? 'WHOLESALER' : 'CUSTOMER', 28, 158);
+    g.fillStyle = '#14261f'; g.font = `800 24px ${FONT}`; g.fillText(String(o.name).slice(0, 32), 28, 190);
+    if (o.phone) { g.fillStyle = '#7a7466'; g.font = `500 14px ${FONT}`; g.fillText(o.phone, 28, 212); }
+    let y = 232;
+    g.fillStyle = '#14261f'; g.fillRect(24, y, W - 48, 32);
+    g.fillStyle = '#fff'; g.font = `700 12px ${FONT}`; g.textAlign = 'left'; g.fillText('DATE / DETAILS', 36, y + 21);
+    g.textAlign = 'right'; g.fillText(o.kind === 'karz' ? 'KARZ' : 'UDHAR', 440, y + 21); g.fillText('PAID', W - 36, y + 21);
+    y += 32;
+    o.entries.forEach((e, i) => {
+      if (i % 2) { g.fillStyle = '#f7f4ea'; g.fillRect(24, y, W - 48, 44); }
+      g.textAlign = 'left'; g.fillStyle = '#14261f'; g.font = `700 14px ${FONT}`; g.fillText(nice(e.d), 36, y + 20);
+      g.fillStyle = '#6b7a72'; g.font = `500 12.5px ${FONT}`; g.fillText(String(e.label || '').slice(0, 34), 36, y + 37);
+      g.textAlign = 'right'; g.font = `800 16px ${FONT}`;
+      g.fillStyle = '#a1291d'; g.fillText(e.db ? fmt(e.db) : '', 440, y + 28);
+      g.fillStyle = '#0b7a62'; g.fillText(e.cr ? fmt(e.cr) : '', W - 36, y + 28);
+      y += 44;
+    });
+    y += 22;
+    g.fillStyle = o.balance > 0 ? '#14261f' : '#0b7a62'; g.fillRect(24, y, W - 48, 50);
+    g.fillStyle = '#fff'; g.textAlign = 'left'; g.font = `800 18px ${FONT}`; g.fillText(o.kind === 'karz' ? 'Karz remaining' : 'Balance due', 40, y + 32);
+    g.textAlign = 'right'; g.fillText(o.balance > 0 ? 'Rs ' + fmt(o.balance) : 'Nil', W - 40, y + 32);
+    g.textAlign = 'center'; g.fillStyle = '#b57a22'; g.font = `700 14px ${FONT}`; g.fillText('Latest entries shown', W / 2, H - 22);
+    return c;
+  }
+
   function toPdf(jpeg, w, h) {
     const enc = new TextEncoder();
     const pw = +(w * 0.75).toFixed(2), ph = +(h * 0.75).toFixed(2);
@@ -108,5 +179,5 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 20000);
     return 'saved';
   }
-  root.Receipt = { draw, png, pdf, deliver };
+  root.Receipt = { draw, drawPayment, drawStatement, png, pdf, deliver };
 })(typeof self !== 'undefined' ? self : this);

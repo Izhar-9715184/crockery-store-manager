@@ -184,3 +184,27 @@ test('payment taken on the phone: added to the ledger once, shown as counted, ba
     assert.equal(ss.status().billErrors.length, 0);
   } finally { srv.close(); store.close(); }
 });
+
+test('payment to a wholesaler made on the phone: counted once', async () => {
+  const { srv, gists, api } = await fakeGithub();
+  const { store, service, ss } = setup(api);
+  try {
+    const st = await ss.connect('ghp_goodtoken_goodtoken_1234');
+    const pass = st.link.split('#sync=')[1].split('&')[0].split('.')[1];
+    const gid = 'a'.repeat(32);
+    service.addSupplierKarz({ name: 'Rafiq Traders', amount: 5000 });
+    const ok = { v: 1, id: 'sp-ok0001', date: '2026-11-05', sn: 'rafiq traders', amount: 2000, method: 'cash', note: '' };
+    gists[gid]['sp-sp-ok0001.json'] = { content: await StockCrypto.encrypt(ok, pass) };
+    gists[gid]['sp-sp-bad001.json'] = { content: await StockCrypto.encrypt({ ...ok, id: 'sp-bad001', sn: 'Nobody' }, pass) };
+    await ss.poll();
+    assert.equal(service.listSuppliers({})[0].balance, 3000);
+    assert.ok(!gists[gid]['sp-sp-ok0001.json']);
+    assert.match(ss.status().billErrors[0].error, /not found/);
+    const snap = await StockCrypto.decrypt(gists[gid]['stock.json'].content, pass);
+    assert.ok(snap.spaysDone.includes('sp-ok0001'));
+    assert.equal(snap.karz[0].b, 3000);
+    gists[gid]['sp-sp-ok0001.json'] = { content: await StockCrypto.encrypt(ok, pass) };
+    await ss.poll();
+    assert.equal(service.listSuppliers({})[0].balance, 3000);
+  } finally { srv.close(); store.close(); }
+});

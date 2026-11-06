@@ -29,9 +29,9 @@
   function load() {
     try {
       const o = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null, udhar: o.udhar || null, karz: o.karz || null, pays: Array.isArray(o.pays) ? o.pays : [], sups: Array.isArray(o.sups) ? o.sups : [], custAll: Array.isArray(o.custAll) ? o.custAll : [], bills: Array.isArray(o.bills) ? o.bills : [], cart: o.cart || null };
+      if (o && Array.isArray(o.batches)) return { batches: o.batches, currentId: o.currentId || null, suppliers: o.suppliers || [], products: o.products || null, sync: o.sync || null, udhar: o.udhar || null, karz: o.karz || null, pays: Array.isArray(o.pays) ? o.pays : [], spays: Array.isArray(o.spays) ? o.spays : [], sups: Array.isArray(o.sups) ? o.sups : [], custAll: Array.isArray(o.custAll) ? o.custAll : [], bills: Array.isArray(o.bills) ? o.bills : [], cart: o.cart || null };
     } catch (e) { /* first run or storage blocked */ }
-    return { batches: [], currentId: null, suppliers: [], products: null, sync: null, udhar: null, karz: null, pays: [], sups: [], custAll: [], bills: [], cart: null };
+    return { batches: [], currentId: null, suppliers: [], products: null, sync: null, udhar: null, karz: null, pays: [], spays: [], sups: [], custAll: [], bills: [], cart: null };
   }
   let data = load();
   function save() {
@@ -150,14 +150,15 @@
         if (x.q !== undefined && Number.isFinite(Number(x.q))) { o.q = Number(x.q); o.u = String(x.u || '').slice(0, 20); }
         return o;
       });
-      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null, shop: obj.shop || '', imported: Array.isArray(obj.imported) ? obj.imported.slice(0, 400) : [], billsDone: Array.isArray(obj.billsDone) ? obj.billsDone.slice(0, 400) : [], paysDone: Array.isArray(obj.paysDone) ? obj.paysDone.slice(0, 400) : [] };
+      data.products = { items, loadedAt: Date.now(), count: items.length, at: obj.at || null, ts: obj.ts || null, shop: obj.shop || '', imported: Array.isArray(obj.imported) ? obj.imported.slice(0, 400) : [], billsDone: Array.isArray(obj.billsDone) ? obj.billsDone.slice(0, 400) : [], paysDone: Array.isArray(obj.paysDone) ? obj.paysDone.slice(0, 400) : [], spaysDone: Array.isArray(obj.spaysDone) ? obj.spaysDone.slice(0, 400) : [] };
       data.custAll = Array.isArray(obj.custAll) ? obj.custAll.slice(0, 1500).map((c) => ({ i: Number(c.i), n: String(c.n).slice(0, 120), p: String(c.p || '').slice(0, 30), b: c.b === undefined ? null : Number(c.b) })) : [];
       data.udhar = Array.isArray(obj.cust) ? { list: obj.cust.slice(0, 400), ts: obj.ts || null } : null;
       data.karz = Array.isArray(obj.karz) ? { list: obj.karz.slice(0, 300), ts: obj.ts || null } : null;
       data.sups = Array.isArray(obj.sups) ? obj.sups.slice(0, 300).map((x) => String(x).slice(0, 100)) : [];
       data.pays = (data.pays || []).filter((x) => x.status === 'pending' || !(data.products.paysDone || []).includes(x.id) || Date.now() - x.at < 3 * 86400000).slice(0, 60);
+      data.spays = (data.spays || []).filter((x) => x.status === 'pending' || !(data.products.spaysDone || []).includes(x.id) || Date.now() - x.at < 3 * 86400000).slice(0, 60);
       data.bills = data.bills.filter((bl) => bl.status === 'pending' || !(data.products.billsDone || []).includes(bl.id) || Date.now() - bl.at < 3 * 86400000).slice(0, 30);
-      save(); renderFields(); updateHint(); renderStock(); renderUdhar(); renderBill();
+      save(); renderFields(); updateHint(); renderStock(); renderUdhar(); renderKarz(); renderBill();
       syncMsg = `Updated online · ${items.length} products`;
       return true;
     } catch (e) {
@@ -377,16 +378,29 @@
   }
 
   // ------------------------------------------------------------------ menu, history, product list, help
+  const PAGE_VERSION = 'v1.1.8';   // shown in the menu so you can tell which page this phone has
+  const drawerOpen = (on) => {
+    $('#drawerWrap').hidden = !on;
+    $('#menuBtn').setAttribute('aria-expanded', on ? 'true' : 'false');
+  };
   function openMenu() {
-    const s = sheet('Menu', `
-      <button class="menu-item" id="m_hist">📋 Old lists (History)</button>
-      <button class="menu-item" id="m_online">🌐 Online stock (automatic)</button>
-      <button class="menu-item" id="m_prod">📦 Product list by message (without internet)</button>
-      <button class="menu-item" id="m_help">ℹ️ How it works / install</button>`);
-    $('#m_hist', s.el).addEventListener('click', () => { s.close(); openHistory(); });
-    $('#m_prod', s.el).addEventListener('click', () => { s.close(); openProducts(); });
-    $('#m_online', s.el).addEventListener('click', () => { s.close(); openOnline(); });
-    $('#m_help', s.el).addEventListener('click', () => { s.close(); openHelp(); });
+    $('#dr_shop').textContent = (data.products && data.products.shop) || 'My Shop';
+    $('#dr_ver').textContent = 'Page version ' + PAGE_VERSION;
+    const ub = $('#dg_udhar'), kb = $('#dg_karz');
+    const ut = data.udhar ? data.udhar.list.reduce((t, c) => t + owedNow(c), 0) : 0;
+    const kt = data.karz ? data.karz.list.reduce((t, c) => t + owedKarz(c), 0) : 0;
+    ub.hidden = !ut; ub.textContent = short(ut); kb.hidden = !kt; kb.textContent = short(kt);
+    document.querySelectorAll('.dr-item[data-tab]').forEach((x) => x.classList.toggle('on', x.dataset.tab === tab));
+    drawerOpen(true);
+  }
+  const short = (n) => (n >= 1e5 ? (n / 1e5).toFixed(n >= 1e6 ? 0 : 1).replace(/\.0$/, '') + 'L' : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : fmt(n));
+  async function getNewestPage() {
+    try {
+      const regs = navigator.serviceWorker ? await navigator.serviceWorker.getRegistrations() : [];
+      for (const r of regs) await r.unregister();
+      for (const k of await caches.keys()) await caches.delete(k);
+    } catch (e) { /* reload anyway */ }
+    location.reload();
   }
 
   function openHistory() {
@@ -451,21 +465,23 @@
   }
 
   // ------------------------------------------------------------------ tabs: Maal / Stock / Udhar
-  const TITLES = { maal: 'Maal entry', bill: 'New bill', stock: 'Stock', udhar: 'Udhar' };
+  const TITLES = { maal: 'Maal entry', bill: 'New bill', stock: 'Stock', udhar: 'Customer udhar', karz: 'Wholesale karz' };
   let tab = 'maal';
   let stockFilter = 'all';
   function setTab(t) {
     tab = t;
     document.body.dataset.tab = t;
-    try { document.querySelector('meta[name=theme-color]').content = { maal: '#4f2bd6', bill: '#1d4ed8', stock: '#055e4d', udhar: '#7c1236' }[t]; } catch (e) { /* ignore */ }
-    for (const v of ['maal', 'bill', 'stock', 'udhar']) $('#v-' + v).hidden = v !== t;
-    document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x.dataset.tab === t));
+    try { document.querySelector('meta[name=theme-color]').content = { maal: '#4f2bd6', bill: '#1d4ed8', stock: '#055e4d', udhar: '#7c1236', karz: '#5c1130' }[t]; } catch (e) { /* ignore */ }
+    for (const v of ['maal', 'bill', 'stock', 'udhar', 'karz']) $('#v-' + v).hidden = v !== t;
+    document.querySelectorAll('.dr-item[data-tab]').forEach((x) => x.classList.toggle('on', x.dataset.tab === t));
+    drawerOpen(false);
     $('#pageTitle').textContent = TITLES[t];
     $('#bar').hidden = t !== 'maal';
     $('#billBar').hidden = t !== 'bill';
     if (t === 'bill') renderBill();
     if (t === 'stock') renderStock();
     if (t === 'udhar') renderUdhar();
+    if (t === 'karz') renderKarz();
     window.scrollTo(0, 0);
   }
   // ------------------------------------------------------------------ BILL: sell from the phone
@@ -576,10 +592,23 @@
     save();
   }
   /** Payments taken on this phone that the laptop has not counted yet (they are taken off the balance shown here). */
+  const countedS = () => new Set((data.products && data.products.spaysDone) || []);
+  const waitingSPays = (name) => (data.spays || []).filter((x) => !countedS().has(x.id) && x.cn.toLowerCase() === String(name).toLowerCase());
   const counted = () => new Set((data.products && data.products.paysDone) || []);
   const waitingPays = (name) => (data.pays || []).filter((x) => !counted().has(x.id) && (!name || x.cn.toLowerCase() === String(name).toLowerCase()));
   const owedNow = (c) => Math.max(0, +(c.b - waitingPays(c.n).reduce((s, x) => s + x.amount, 0)).toFixed(2));
+  async function uploadSPay(py) {
+    if (!data.sync || !data.sync.key) throw new Error('This phone is not connected for sending. Open the link from the laptop again.');
+    if (!navigator.onLine) throw new Error('offline');
+    const content = await self.StockCrypto.encrypt({ v: 1, id: py.id, date: py.date, sn: py.cn, amount: py.amount, method: py.method, note: py.note }, data.sync.pass);
+    const r = await fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: { ['sp-' + py.id + '.json']: { content } } }) });
+    if (!r.ok) throw new Error(r.status === 401 ? 'The key in the link is not accepted. Open a fresh link from the laptop.' : `Could not send (${r.status}). Try again.`);
+    py.status = 'sent';
+    save();
+  }
   async function sendPending() {
+    for (const py of (data.spays || []).filter((x) => x.status === 'pending')) { try { await uploadSPay(py); } catch (e) { break; } }
     for (const py of (data.pays || []).filter((x) => x.status === 'pending')) { try { await uploadPay(py); } catch (e) { break; } }
     for (const bl of data.bills.filter((x) => x.status === 'pending')) { try { await uploadBill(bl); } catch (e) { break; } }
     renderBill(); renderStock();
@@ -657,53 +686,122 @@
   }
 
   const fmtTs = (ts) => { const d = new Date(ts); return `${nice(ymd(d))}, ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
-  let uMode = 'udhar';   // 'udhar' = customers who owe me, 'karz' = wholesalers I owe
+  const owedKarz = (c) => Math.max(0, +(c.b - waitingSPays(c.n).reduce((t, x) => t + x.amount, 0)).toFixed(2));
+  const notReady = (what) => `<div class="empty">${CUP}<b>${data.sync ? what + ' not received yet' : 'Connect the laptop first'}</b><br>${data.sync ? (what === 'Karz' ? 'Update the laptop software, then in Settings press “Send stock now”, and refresh here.' : 'At the laptop: Settings → Stock online for the phone → tick “Also show udhar on the phone”, then “Send stock now”.') : 'Open the link from the laptop (Settings → Stock online for the phone) on this phone.'}</div>`;
   function renderUdhar() {
-    document.querySelectorAll('#um_seg button').forEach((x) => x.classList.toggle('on', x.dataset.m === uMode));
-    const karz = uMode === 'karz';
-    const u = karz ? data.karz : data.udhar;
-    $('#udharLabel').textContent = karz ? 'Karz to wholesalers' : 'Udhar pending';
-    $('#u_q').placeholder = karz ? 'Search wholesaler…' : 'Search customer…';
+    const u = data.udhar;
     if (!u) {
       $('#udharTotal').textContent = '–';
-      $('#udharSub').textContent = data.sync ? (karz ? 'Karz is not shared by the laptop yet' : 'Udhar is not shared by the laptop') : 'Not connected';
-      $('#u_list').innerHTML = `<div class="empty">${CUP}<b>${data.sync ? (karz ? 'Karz not received yet' : 'Udhar is switched off') : 'Connect the laptop first'}</b><br>${data.sync ? (karz ? 'Update the laptop software, then in Settings press “Send stock now”, and refresh here.' : 'At the laptop: Settings → Stock online for the phone → tick “Also show udhar on the phone”.') : 'Open the link from the laptop (Settings → Stock online for the phone) on this phone.'}</div>`;
+      $('#udharSub').textContent = data.sync ? 'Udhar is not shared by the laptop yet' : 'Not connected';
+      $('#u_list').innerHTML = notReady('Udhar');
       return;
     }
-    const bal = (c) => (karz ? c.b : owedNow(c));
-    const total = u.list.reduce((s, c) => s + bal(c), 0);
+    const total = u.list.reduce((t, c) => t + owedNow(c), 0);
     $('#udharTotal').textContent = money(total);
-    $('#udharSub').textContent = karz ? `You owe ${u.list.length} wholesaler${u.list.length === 1 ? '' : 's'}${u.ts ? ' · as of ' + fmtTs(u.ts) : ''}`
-      : `${u.list.length} customer${u.list.length === 1 ? '' : 's'} owe you${u.ts ? ' · as of ' + fmtTs(u.ts) : ''}`;
+    $('#udharSub').textContent = `${u.list.length} customer${u.list.length === 1 ? '' : 's'} owe you${u.ts ? ' · as of ' + fmtTs(u.ts) : ''}`;
     const q = norm($('#u_q').value);
     const rows = u.list.filter((c) => !q || norm(c.n).includes(q) || String(c.p).includes(q));
     $('#u_list').innerHTML = rows.map((c) => `<button class="pcard ccard" data-c="${u.list.indexOf(c)}"><div class="top2"><div class="who">${avatar(c.n)}
-      <div style="min-width:0"><div class="nm">${esc(c.n)}</div><div class="meta">${esc(c.p || 'no phone')}</div></div></div><div class="bal">${fmt(bal(c))}<small>Rs</small></div></div></button>`).join('')
-      || (u.list.length ? '<div class="empty">Nobody found.</div>' : `<div class="empty">${CUP}<b>${karz ? 'You owe nobody anything' : 'Nobody owes you anything'}</b></div>`);
+      <div style="min-width:0"><div class="nm">${esc(c.n)}</div><div class="meta">${esc(c.p || 'no phone')}</div></div></div><div class="bal">${fmt(owedNow(c))}<small>Rs</small></div></div></button>`).join('')
+      || (u.list.length ? '<div class="empty">Nobody found.</div>' : `<div class="empty">${CUP}<b>Nobody owes you anything</b></div>`);
   }
-  function openCustomer(c) {
-    const karz = uMode === 'karz';
-    const mine = karz ? [] : waitingPays(c.n);
+  function renderKarz() {
+    const u = data.karz;
+    if (!u) {
+      $('#karzTotal').textContent = '–';
+      $('#karzSub').textContent = data.sync ? 'Karz is not shared by the laptop yet' : 'Not connected';
+      $('#kz_list').innerHTML = notReady('Karz');
+      return;
+    }
+    const total = u.list.reduce((t, c) => t + owedKarz(c), 0);
+    $('#karzTotal').textContent = money(total);
+    $('#karzSub').textContent = `You owe ${u.list.length} wholesaler${u.list.length === 1 ? '' : 's'}${u.ts ? ' · as of ' + fmtTs(u.ts) : ''}`;
+    const q = norm($('#kz_q').value);
+    const rows = u.list.filter((c) => !q || norm(c.n).includes(q) || String(c.p).includes(q));
+    $('#kz_list').innerHTML = rows.map((c) => `<button class="pcard ccard" data-c="${u.list.indexOf(c)}"><div class="top2"><div class="who">${avatar(c.n)}
+      <div style="min-width:0"><div class="nm">${esc(c.n)}</div><div class="meta">${esc(c.p || 'no phone')}</div></div></div><div class="bal">${fmt(owedKarz(c))}<small>Rs</small></div></div></button>`).join('')
+      || (u.list.length ? '<div class="empty">Nobody found.</div>' : `<div class="empty">${CUP}<b>You owe nobody anything</b></div>`);
+  }
+
+  /** kind: 'udhar' (a customer owes me) or 'karz' (I owe a wholesaler) */
+  function openCustomer(c, kind) {
+    const karz = kind === 'karz';
+    const mine = karz ? waitingSPays(c.n) : waitingPays(c.n);
+    const now = karz ? owedKarz(c) : owedNow(c);
     const typ = karz ? { opening: 'Old karz', purchase: 'Maal on karz', payment: 'Paid to him', adjust: 'Correction' }
       : { opening: 'Old balance', credit_sale: 'Bill (udhar)', payment: 'Payment received', sale_cancel: 'Bill cancelled', adjust: 'Correction' };
     const s = sheet(c.n, `
-      <div class="item-row" style="display:flex;justify-content:space-between;align-items:center"><div class="muted small">${karz ? 'You owe him (karz)' : 'Udhar pending'}</div><div style="font-size:26px;font-weight:800;color:var(--red)">${money(karz ? c.b : owedNow(c))}</div></div>
-      ${karz ? '' : '<button class="btn primary block big" id="cu_recv">Payment received</button>'}
-      ${c.p ? `<a class="btn primary block call" href="tel:${esc(String(c.p).replace(/[^+\d]/g, ''))}">Call ${esc(c.p)}</a>` : ''}
+      <div class="item-row" style="display:flex;justify-content:space-between;align-items:center"><div class="muted small">${karz ? 'You owe him (karz)' : 'Udhar pending'}</div><div style="font-size:26px;font-weight:800;color:var(--red)">${money(now)}</div></div>
+      <button class="btn primary block big" id="cu_pay">${karz ? 'Payment given to him' : 'Payment received'}</button>
+      <div class="row2"><button class="btn block" id="cu_share">Send details (picture / PDF)</button><button class="btn block" id="cu_sms">SMS / WhatsApp text</button></div>
+      ${c.p ? `<a class="btn block call" href="tel:${esc(String(c.p).replace(/[^+\d]/g, ''))}">Call ${esc(c.p)}</a>` : ''}
       <h2 style="margin:16px 2px 8px;font-size:15px">Latest entries</h2>
-      <div class="item-row" style="padding-top:2px;padding-bottom:2px">${mine.map((x) => `<div class="entry"><div><b>Payment received (this phone)</b><div class="muted small">${esc(nice(x.date))} · ${x.status === 'sent' ? 'sent — the laptop will count it' : 'waiting for internet'}</div></div><div class="minus">−${fmt(x.amount)}</div></div>`).join('')}${c.e.length ? c.e.map((x) => `<div class="entry"><div><b>${esc(typ[x.t] || x.t)}</b><div class="muted small">${esc(nice(x.d))}${x.n ? ' · ' + esc(x.n) : ''}</div></div>
+      <div class="item-row" style="padding-top:2px;padding-bottom:2px">${mine.map((x) => `<div class="entry"><div><b>${karz ? 'Paid to him (this phone)' : 'Payment received (this phone)'}</b><div class="muted small">${esc(nice(x.date))} · ${x.status === 'sent' ? 'sent — the laptop will count it' : 'waiting for internet'}</div></div><div class="minus">−${fmt(x.amount)}</div></div>`).join('')}${c.e.length ? c.e.map((x) => `<div class="entry"><div><b>${esc(typ[x.t] || x.t)}</b><div class="muted small">${esc(nice(x.d))}${x.n ? ' · ' + esc(x.n) : ''}</div></div>
         <div class="${x.db ? 'plus' : 'minus'}">${x.db ? '+' + fmt(x.db) : '−' + fmt(x.cr)}</div></div>`).join('') : (mine.length ? '' : '<div class="muted small" style="padding:10px 0">No entries.</div>')}</div>`);
-    const rb = $('#cu_recv', s.el);
-    if (rb) rb.addEventListener('click', () => { s.close(); receiveSheet(c); });
+    $('#cu_pay', s.el).addEventListener('click', () => { s.close(); paymentSheet(c, kind); });
+    $('#cu_share', s.el).addEventListener('click', () => sendDetails(c, kind, 'file'));
+    $('#cu_sms', s.el).addEventListener('click', () => sendDetails(c, kind, 'text'));
     return s;
   }
 
-  /** Take a payment from a customer on the phone (works without internet; the laptop counts it when it can). */
-  function receiveSheet(c) {
-    const due = owedNow(c);
-    const s = sheet(`Payment from ${c.n}`, `
-      <div class="item-row" style="display:flex;justify-content:space-between;align-items:center"><div class="muted small">Udhar pending</div><div style="font-size:24px;font-weight:800;color:var(--red)">${money(due)}</div></div>
-      <label class="f"><span>Amount received (Rs)</span><input id="rv_amt" type="text" inputmode="decimal" value="${due || ''}"></label>
+  const shopName = () => (data.products && data.products.shop) || '';
+  const entriesOf = (c, kind) => {
+    const typ = kind === 'karz' ? { opening: 'Old karz', purchase: 'Maal on karz', payment: 'Paid to him', adjust: 'Correction' }
+      : { opening: 'Old balance', credit_sale: 'Bill (udhar)', payment: 'Payment received', sale_cancel: 'Bill cancelled', adjust: 'Correction' };
+    const mine = (kind === 'karz' ? waitingSPays(c.n) : waitingPays(c.n)).map((x) => ({ d: x.date, label: (kind === 'karz' ? 'Paid to him' : 'Payment received') + ' (this phone)', db: 0, cr: x.amount }));
+    return [...mine, ...c.e.map((x) => ({ d: x.d, label: (typ[x.t] || x.t) + (x.n ? ' · ' + x.n : ''), db: x.db, cr: x.cr }))];
+  };
+  /** Sends the account of a customer / wholesaler: as a picture/PDF (share sheet → WhatsApp) or as plain text (SMS / WhatsApp message). */
+  function sendDetails(c, kind, how) {
+    const bal = kind === 'karz' ? owedKarz(c) : owedNow(c);
+    const entries = entriesOf(c, kind).slice(0, 8);
+    if (how === 'text') {
+      const lines = entries.slice(0, 5).map((e) => `${nice(e.d)}: ${e.db ? '+' + fmt(e.db) : '-' + fmt(e.cr)}${e.label ? ' (' + e.label + ')' : ''}`);
+      const text = kind === 'karz'
+        ? [`${shopName() ? shopName() + ' — ' : ''}Account of ${c.n}`, bal > 0 ? `We owe you Rs ${fmt(bal)}.` : 'No karz pending.', ...(lines.length ? ['Recent:', ...lines] : []), 'Thank you.'].join('\n')
+        : [`Dear ${c.n},`, bal > 0 ? `Your pending udhar${shopName() ? ' at ' + shopName() : ''} is Rs ${fmt(bal)}.` : 'Your udhar is cleared. Thank you!', ...(lines.length ? ['Recent:', ...lines] : []), bal > 0 ? 'Please pay when you can. Thank you.' : ''].filter(Boolean).join('\n');
+      const num_ = String(c.p || '').replace(/[^\d+]/g, '');
+      const sheetx = sheet('Send as message', `<pre class="msgpre">${esc(text)}</pre>
+        <a class="btn primary block big" id="sd_sms" href="sms:${esc(num_)}?&body=${encodeURIComponent(text)}">SMS</a>
+        <a class="btn block" id="sd_wa" target="_blank" rel="noopener" href="https://wa.me/${esc(waNumber(num_))}?text=${encodeURIComponent(text)}">WhatsApp (text)</a>
+        <button class="btn block" id="sd_copy">Copy text</button>`);
+      $('#sd_copy', sheetx.el).addEventListener('click', async () => { try { await navigator.clipboard.writeText(text); toast('Copied'); } catch (e) { toast('Could not copy', true); } });
+      return sheetx;
+    }
+    const canvas = self.Receipt.drawStatement({ name: c.n, phone: c.p, entries, balance: bal, kind, date: ymd(new Date()) }, shopName());
+    return fileSheet(canvas, `${kind === 'karz' ? 'Karz' : 'Udhar'}-${c.n}-${ymd(new Date())}`, kind === 'karz' ? 'Account of karz' : 'Account of udhar', '');
+  }
+  const waNumber = (n) => { let d = String(n).replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); else if (d.startsWith('0')) d = '92' + d.slice(1); return d; };
+
+  /** A drawn picture with Share / Save picture / Save PDF. */
+  function fileSheet(canvas, baseName, title, msg, closeLabel) {
+    const s = sheet(title, `<img id="rc_img" class="receipt-img" alt="${esc(title)}" src="${canvas.toDataURL('image/png')}">
+      ${msg ? `<p class="muted small">${esc(msg)}</p>` : ''}
+      <button class="btn primary block big" id="rc_share">Share (WhatsApp)</button>
+      <div class="row2"><button class="btn block" id="rc_png">Save picture</button><button class="btn block" id="rc_pdf">Save PDF</button></div>
+      <button class="btn block" id="rc_new">${esc(closeLabel || 'Close')}</button>`);
+    const nm = String(baseName).replace(/[^\w؀-ۿ-]+/g, '_');
+    const run = (kind, shareFirst) => async () => {
+      try {
+        const blob = kind === 'pdf' ? await self.Receipt.pdf(canvas) : await self.Receipt.png(canvas);
+        const r = await self.Receipt.deliver(blob, `${nm}.${kind}`, shareFirst);
+        if (r === 'saved') toast(kind === 'pdf' ? 'PDF saved in Downloads' : 'Picture saved in Downloads');
+      } catch (e) { toast('Could not make the file: ' + e.message, true); }
+    };
+    $('#rc_share', s.el).addEventListener('click', run('png', true));
+    $('#rc_png', s.el).addEventListener('click', run('png', false));
+    $('#rc_pdf', s.el).addEventListener('click', run('pdf', false));
+    $('#rc_new', s.el).addEventListener('click', () => s.close());
+    return s;
+  }
+
+  /** Take a payment from a customer (kind 'udhar') or give one to a wholesaler (kind 'karz'). Works without internet. */
+  function paymentSheet(c, kind) {
+    const karz = kind === 'karz';
+    const due = karz ? owedKarz(c) : owedNow(c);
+    const s = sheet(karz ? `Payment to ${c.n}` : `Payment from ${c.n}`, `
+      <div class="item-row" style="display:flex;justify-content:space-between;align-items:center"><div class="muted small">${karz ? 'You owe him (karz)' : 'Udhar pending'}</div><div style="font-size:24px;font-weight:800;color:var(--red)">${money(due)}</div></div>
+      <label class="f"><span>${karz ? 'Amount paid (Rs)' : 'Amount received (Rs)'}</span><input id="rv_amt" type="text" inputmode="decimal" value="${due || ''}"></label>
       <div class="seg2" id="rv_m" style="margin:4px 0 8px"><button type="button" class="chip on" data-m="cash">Cash</button><button type="button" class="chip" data-m="bank">Bank</button><button type="button" class="chip" data-m="wallet">EasyPaisa / JazzCash</button></div>
       <label class="f"><span>Note (optional)</span><input id="rv_note" type="text"></label>
       <button class="btn primary block big" id="rv_save">Save payment</button>`);
@@ -711,17 +809,16 @@
     $('#rv_m', s.el).addEventListener('click', (e) => { const b = e.target.closest('[data-m]'); if (!b) return; method = b.dataset.m; s.el.querySelectorAll('#rv_m button').forEach((x) => x.classList.toggle('on', x === b)); });
     $('#rv_save', s.el).addEventListener('click', async () => {
       const amount = num($('#rv_amt', s.el).value);
-      if (!(amount > 0)) return toast('Enter the amount received', true);
-      if (amount > due + 0.009) return toast(`More than the udhar (${money(due)})`, true);
-      const py = { id: 'py-' + rid().slice(2), at: Date.now(), date: ymd(new Date()), cn: c.n, amount, method, note: $('#rv_note', s.el).value.trim(), status: 'pending' };
-      data.pays.unshift(py); save();
+      if (!(amount > 0)) return toast(karz ? 'Enter the amount paid' : 'Enter the amount received', true);
+      if (amount > due + 0.009) return toast(`More than the ${karz ? 'karz' : 'udhar'} (${money(due)})`, true);
+      const py = { id: (karz ? 'sp-' : 'py-') + rid().slice(2), at: Date.now(), date: ymd(new Date()), cn: c.n, amount, method, note: $('#rv_note', s.el).value.trim(), status: 'pending' };
+      (karz ? data.spays : data.pays).unshift(py); save();
       s.close();
       let msg = 'Saved. It will be sent when the phone has internet.';
-      try { await uploadPay(py); msg = 'Saved and sent. The laptop adds it to the ledger by itself.'; } catch (e) { if (e.message !== 'offline') msg = e.message; }
-      toast(msg);
-      renderUdhar();
-      const fresh = data.udhar && data.udhar.list.find((x) => x.n === c.n);
-      if (fresh) openCustomer(fresh);
+      try { await (karz ? uploadSPay(py) : uploadPay(py)); msg = 'Saved and sent. The laptop adds it to the ledger by itself.'; } catch (e) { if (e.message !== 'offline') msg = e.message; }
+      karz ? renderKarz() : renderUdhar();
+      const canvas = self.Receipt.drawPayment({ kind: karz ? 'paid' : 'received', name: c.n, amount, method, date: py.date, note: py.note, after: Math.max(0, +(due - amount).toFixed(2)) }, shopName());
+      fileSheet(canvas, `${karz ? 'Payment-to' : 'Receipt'}-${c.n}-${py.date}`, karz ? 'Payment receipt' : 'Receipt', msg + ' You can send this receipt to ' + (karz ? 'the wholesaler.' : 'the customer.'), 'Done');
     });
   }
 
@@ -834,13 +931,21 @@
     window.addEventListener('online', sendPending);
     $('#k_q').addEventListener('input', renderStock);
     $('#u_q').addEventListener('input', renderUdhar);
-    $('#um_seg').addEventListener('click', (e) => { const b = e.target.closest('[data-m]'); if (!b) return; uMode = b.dataset.m; $('#u_q').value = ''; renderUdhar(); });
+    $('#kz_q').addEventListener('input', renderKarz);
     $('#paySeg').addEventListener('click', (e) => { const b = e.target.closest('[data-m]'); if (!b) return; const bb = ensureCurrent(); bb.pay = b.dataset.m; save(); renderPay(bb); });
     $('#paidNow').addEventListener('input', () => { const bb = ensureCurrent(); bb.paid = $('#paidNow').value; save(); renderPay(bb); });
     $('#k_seg').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; stockFilter = b.dataset.f; document.querySelectorAll('#k_seg .chip').forEach((x) => x.classList.toggle('on', x === b)); renderStock(); });
     $('#k_list').addEventListener('click', (e) => { const r = e.target.closest('[data-n]'); if (!r) return; setTab('maal'); $('#name').value = r.dataset.n; updateHint(); $('#qty').focus(); });
-    $('#u_list').addEventListener('click', (e) => { const r = e.target.closest('[data-c]'); const src = uMode === 'karz' ? data.karz : data.udhar; if (r && src) openCustomer(src.list[Number(r.dataset.c)]); });
-    $('#tabs').addEventListener('click', (e) => { if (e.target.closest('#moreTab')) return openMenu(); const t = e.target.closest('[data-tab]'); if (t) setTab(t.dataset.tab); });
+    $('#u_list').addEventListener('click', (e) => { const r = e.target.closest('[data-c]'); if (r && data.udhar) openCustomer(data.udhar.list[Number(r.dataset.c)], 'udhar'); });
+    $('#kz_list').addEventListener('click', (e) => { const r = e.target.closest('[data-c]'); if (r && data.karz) openCustomer(data.karz.list[Number(r.dataset.c)], 'karz'); });
+    $('#drawerWrap').addEventListener('click', (e) => {
+      if (e.target === $('#drawerWrap')) return drawerOpen(false);
+      const t = e.target.closest('.dr-item[data-tab]'); if (t) return setTab(t.dataset.tab);
+      const id = (e.target.closest('.dr-item') || {}).id;
+      if (!id) return;
+      drawerOpen(false);
+      if (id === 'm_hist') openHistory(); if (id === 'm_online') openOnline(); if (id === 'm_prod') openProducts(); if (id === 'm_help') openHelp(); if (id === 'm_upd') getNewestPage();
+    });
     window.addEventListener('online', setStatus);
     window.addEventListener('offline', setStatus);
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
@@ -856,7 +961,7 @@
         .then(() => { offlineReady = true; setStatus(); })
         .catch(() => { /* works online only */ });
     }
-    renderStock(); renderUdhar(); renderBill();
+    renderStock(); renderUdhar(); renderKarz(); renderBill();
     const linked = readSyncLink();
     if (data.sync) fetchOnline(linked).then((ok) => { if (linked && ok) toast('Connected. Stock loaded.'); });
     window.addEventListener('online', () => { if (data.sync) fetchOnline(false); });

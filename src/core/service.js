@@ -941,6 +941,20 @@ function createService(store) {
         cust.id, date(b.date), 'payment', amount, clean(b.method) || 'cash', clean(b.note) ? `${clean(b.note)} (phone)` : 'Received on phone', b.id);
       return { status: 'created', id: b.id };
     });
+  S.phoneSupplierPayIds = () => store.all('SELECT phone_id FROM supplier_ledger WHERE phone_id IS NOT NULL ORDER BY id DESC LIMIT 300').map((r) => r.phone_id);
+  /** A payment to a wholesaler made on the phone: {v:1, id, date, sn, amount, method, note}. Applied once. */
+  S.paySupplierFromPhone = (b) =>
+    store.tx(() => {
+      if (!b || b.v !== 1 || typeof b.id !== 'string' || !/^[A-Za-z0-9_-]{4,64}$/.test(b.id)) fail('This is not a payment from the phone');
+      if (store.get('SELECT id FROM supplier_ledger WHERE phone_id=?', b.id)) return { status: 'done', id: b.id };
+      const sup = store.get('SELECT id FROM suppliers WHERE active=1 AND name = ? COLLATE NOCASE', clean(b.sn));
+      if (!sup) fail(`Wholesaler "${clean(b.sn)}" was not found`);
+      const amount = r2(num(b.amount, 'Amount', { min: 0 }));
+      if (amount <= 0) fail('Amount must be greater than zero');
+      store.run('INSERT INTO supplier_ledger(supplier_id,date,type,credit,method,note,phone_id) VALUES(?,?,?,?,?,?,?)',
+        sup.id, date(b.date), 'payment', amount, clean(b.method) || 'cash', clean(b.note) ? `${clean(b.note)} (phone)` : 'Paid on phone', b.id);
+      return { status: 'created', id: b.id };
+    });
   S.importedBatchIds = () => store.all('SELECT id FROM purchase_imports ORDER BY imported_at DESC LIMIT 300').map((r) => r.id);
 
   S.listPurchaseImports = () => store.all('SELECT * FROM purchase_imports ORDER BY imported_at DESC LIMIT 50');

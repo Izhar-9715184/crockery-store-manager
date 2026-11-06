@@ -250,3 +250,7 @@ Settings -> **Stock online for the phone**: GitHub token (sirf "gist" permission
 - **Customer statement:** *Statement (print / PDF / picture)* in a customer's ledger shows the statement first; then choose Print, Save as PDF or Save as picture.
 - **Payment received on the phone:** Udhar tab → customer → *Payment received*. It works without internet; the phone sends it online and the laptop adds it to the customer's ledger by itself (never twice). Until the laptop has counted it, the phone already shows the reduced udhar.
 - The phone page now reloads itself once when a new version is installed (no more "refresh twice").
+
+## v1.1.8
+- Phone: side bar (menu ☰) instead of the bottom bar; separate **Wholesale karz** tab; **Payment received** (customers) and **Payment given** (wholesalers) with picture/PDF receipts; send udhar/karz details by WhatsApp (picture/PDF) or SMS/WhatsApp text.
+- Laptop: receipt after paying a wholesaler (PDF / picture / print).

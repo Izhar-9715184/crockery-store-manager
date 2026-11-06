@@ -383,6 +383,42 @@ function showStatement(led) {
   return m;
 }
 
+function paymentHtml(o, s = App.settings) {
+  const paid = o.kind === 'paid';
+  const mname = { cash: 'Cash', bank: 'Bank transfer', wallet: 'EasyPaisa / JazzCash', cheque: 'Cheque' }[o.method] || o.method || 'Cash';
+  return `<div class="inv a4">${shopHeader(s, paid ? 'PAYMENT MADE' : 'PAYMENT RECEIPT', fmtDate(o.date))}
+    <div class="inv-body">
+      <div class="inv-boxes">
+        <div class="inv-box"><div class="inv-k">${paid ? 'Paid to' : 'Received from'}</div><div class="inv-v">${esc(o.name)}</div></div>
+        <div class="inv-box"><dl><dt>Date</dt><dd>${esc(fmtDate(o.date))}</dd><dt>Method</dt><dd>${esc(mname)}</dd>${o.note ? `<dt>Note</dt><dd>${esc(o.note)}</dd>` : ''}</dl></div>
+      </div>
+      <div class="inv-foot"><div class="inv-words"><div class="inv-k">Amount in words</div><div>${esc(amountWords(o.amount))}</div></div>
+        <div class="inv-totals"><div class="row grand"><span>${paid ? 'Amount paid' : 'Amount received'}</span><span>${money(o.amount)}</span></div>
+        <div class="row"><span>${paid ? 'Karz remaining' : 'Udhar remaining'}</span><span>${o.balance > 0 ? money(o.balance) : 'Nil'}</span></div></div></div>
+      <div class="inv-thanks">${esc(paid ? 'Payment made with thanks' : (s.invoice_footer || 'Thank you!'))}</div>
+    </div></div>`;
+}
+/** Receipt of one payment (to a wholesaler): preview, then Save as PDF / picture / Print. */
+function showPaymentReceipt(o) {
+  const m = modal({
+    title: `Payment receipt — ${o.name}`,
+    wide: true,
+    body: `<div class="preview-wrap"><div class="preview a4">${paymentHtml(o)}</div></div>
+      <p class="muted small" style="margin:10px 0 0"><b>Save as PDF</b> or <b>Save as picture</b> makes a file you can send to the wholesaler (WhatsApp, email). <b>Print</b> sends it to your printer.</p>`,
+    actions: [
+      { label: 'Close' },
+      { label: 'Save as PDF', kind: 'teal', close: false, onClick: () => doSave('pdf') },
+      { label: 'Save as picture', kind: 'teal', close: false, onClick: () => doSave('png') },
+      { label: 'Print', kind: 'primary', close: false, onClick: () => printHtml(paymentHtml(o)) },
+    ],
+  });
+  const doSave = (kind) => safe(async () => {
+    const p = await saveReceipt($('.preview .inv', m.body), kind, `Payment-${o.name}-${o.date}`);
+    if (p) toast(`Saved: ${p}`, 'ok');
+  });
+  return m;
+}
+
 async function showInvoice(saleId, { onChange } = {}) {
   const sale = await rpc('getSale', saleId);
   let paper = paperOf();

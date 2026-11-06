@@ -105,6 +105,10 @@ fs.mkdirSync(shots, { recursive: true });
   await page.click('.overlay:last-of-type footer button:has-text("Save payment")');
   await page.waitForFunction(() => document.body.textContent.includes('Karz remaining: Rs 1,000'));
   assert.equal(svc.listSuppliers({})[0].balance, 1000);
+  await page.waitForSelector('.preview .inv');
+  assert.match(await page.textContent('.preview .inv'), /PAYMENT MADE/i);
+  assert.match(await page.textContent('.preview .inv'), /1,000/);
+  await shot('k3b-payment-receipt');
   await page.evaluate(() => document.querySelectorAll('.overlay').forEach((o) => o.remove()));
   // old karz for a brand-new wholesaler
   await page.click('#oldk');

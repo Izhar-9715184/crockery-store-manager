@@ -47,8 +47,10 @@ function paySupplierDialog(s, done) {
     actions: [{ label: 'Cancel' }, {
       label: 'Save payment', kind: 'primary', close: false,
       onClick: async (m) => {
-        const u = await rpc('paySupplier', { ...formData(m.body), supplier_id: s.id });
+        const f = formData(m.body);
+        const u = await rpc('paySupplier', { ...f, supplier_id: s.id });
         m.close(); toast(`Payment saved. Karz remaining: ${money(u.balance)}`, 'ok'); if (done) done();
+        showPaymentReceipt({ kind: 'paid', name: s.name, amount: Number(f.amount), date: f.date, method: f.method, note: f.note, balance: u.balance });
       },
     }],
   });

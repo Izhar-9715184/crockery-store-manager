@@ -16,11 +16,11 @@
 </head>
 <body data-tab="maal">
   <header class="top">
+    <button class="icon" id="menuBtn" aria-label="Menu" aria-expanded="false">☰</button>
     <div class="ttl">
       <h1 id="pageTitle">Maal entry</h1>
       <div class="sub" id="status">Wholesale purchase list</div>
     </div>
-    <button class="icon" id="menuBtn" aria-label="Menu">⋮</button>
   </header>
   <div id="banner" class="banner" hidden></div>
 
@@ -113,11 +113,19 @@
     <!-- ================= UDHAR ================= -->
     <div class="view" id="v-udhar" hidden>
       <section class="hero tile red">
-        <div class="hero-main"><div class="hero-label" id="udharLabel">Udhar pending</div><div class="hero-num" id="udharTotal">–</div><div class="hero-sub" id="udharSub">Not connected</div></div>
+        <div class="hero-main"><div class="hero-label">Udhar pending (customers)</div><div class="hero-num" id="udharTotal">–</div><div class="hero-sub" id="udharSub">Not connected</div></div>
       </section>
-      <div class="seg2" id="um_seg"><button type="button" class="chip on" data-m="udhar">Customer udhar</button><button type="button" class="chip" data-m="karz">Wholesale karz</button></div>
       <div class="searchbox"><input id="u_q" type="search" placeholder="Search customer…" autocomplete="off"></div>
       <div id="u_list"></div>
+    </div>
+
+    <!-- ================= WHOLESALE KARZ ================= -->
+    <div class="view" id="v-karz" hidden>
+      <section class="hero tile">
+        <div class="hero-main"><div class="hero-label">Karz to wholesalers</div><div class="hero-num" id="karzTotal">–</div><div class="hero-sub" id="karzSub">Not connected</div></div>
+      </section>
+      <div class="searchbox"><input id="kz_q" type="search" placeholder="Search wholesaler…" autocomplete="off"></div>
+      <div id="kz_list"></div>
     </div>
   </main>
 
@@ -131,13 +139,22 @@
     <button class="btn primary big" id="sendBtn">Send to laptop</button>
   </footer>
 
-  <nav class="tabs" id="tabs" aria-label="Sections">
-    <button class="tab on" data-tab="maal"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg><span>Maal</span></button>
-    <button class="tab" data-tab="stock"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/></svg><span>Stock</span></button>
-    <button class="tab fab" data-tab="bill"><span class="fabdot"><svg viewBox="0 0 24 24"><path d="M6 2h12a1 1 0 0 1 1 1v18l-3-2-3 2-3-2-3 2V3a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6"/></svg></span><span class="l">Bill</span></button>
-    <button class="tab" data-tab="udhar"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M17 8.5h4.5M19.2 6.3v4.4"/></svg><span>Udhar</span></button>
-    <button class="tab" id="moreTab" type="button"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>Aur</span></button>
-  </nav>
+<div class="drawer-wrap" id="drawerWrap" hidden>
+    <aside class="drawer" id="drawer" aria-label="Menu">
+      <div class="dr-brand"><img src="icon-192.png" alt="" width="46" height="46"><div><b id="dr_shop">My Shop</b><small>MANAGER</small></div></div>
+      <button class="dr-item" data-tab="maal"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg><span class="dr-t"><b>Maal entry</b><small>Buy list for the laptop</small></span></button>
+      <button class="dr-item" data-tab="bill"><svg viewBox="0 0 24 24"><path d="M6 2h12a1 1 0 0 1 1 1v18l-3-2-3 2-3-2-3 2V3a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6"/></svg><span class="dr-t"><b>New bill</b><small>Sell from the phone</small></span></button>
+      <button class="dr-item" data-tab="stock"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/></svg><span class="dr-t"><b>Stock</b><small>What is in the shop</small></span></button>
+      <button class="dr-item" data-tab="udhar"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M17 8.5h4.5M19.2 6.3v4.4"/></svg><span class="dr-t"><b>Customer udhar</b><small>Who owes me</small></span><span class=dr-badge id=dg_udhar hidden></span></button>
+      <button class="dr-item" data-tab="karz"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M16 19h6M19 16v6"/></svg><span class="dr-t"><b>Wholesale karz</b><small>What I owe</small></span><span class=dr-badge id=dg_karz hidden></span></button>
+      <div class="dr-sep">MORE</div>
+      <button class="dr-item sm" id="m_hist"><span class="dr-e">📋</span><span class="dr-t"><b>Old lists</b></span></button>
+      <button class="dr-item sm" id="m_online"><span class="dr-e">🌐</span><span class="dr-t"><b>Online stock</b></span></button>
+      <button class="dr-item sm" id="m_prod"><span class="dr-e">📦</span><span class="dr-t"><b>Product list by message</b></span></button>
+      <button class="dr-item sm" id="m_help"><span class="dr-e">ℹ️</span><span class="dr-t"><b>How it works / install</b></span></button>
+      <button class="dr-item sm" id="m_upd"><span class="dr-e">🔄</span><span class="dr-t"><b>Get the newest page</b><small id="dr_ver"></small></span></button>
+    </aside>
+  </div>
 
   <div id="toast" class="toast" hidden></div>
   <div id="sheets"></div>

@@ -150,7 +150,7 @@ function pagesServer() {
   assert.match(await phone.textContent('#hint'), /cost 100/);
   assert.match(await phone.textContent('#hint'), /stock 5/);
   // "My stock" screen: search + tap a product to fill the name
-  await phone.click('[data-tab=stock]');
+  await phone.click('#menuBtn'); await phone.click('.dr-item[data-tab=stock]');
   await phone.waitForSelector('#k_list .pcard');
   assert.equal(await phone.locator('#k_list .pcard').count(), 2);
   await phone.fill('#k_q', 'glass');
@@ -185,10 +185,10 @@ function pagesServer() {
     await p2.fill('#name', 'Tea Cup');
     assert.match(await p2.textContent('#hint'), /stock 33 pcs/);
     assert.ok(!(await p2.evaluate(() => location.hash)), 'secret removed from the address bar');
-    await p2.click('[data-tab=stock]');
+    await p2.click('#menuBtn'); await p2.click('.dr-item[data-tab=stock]');
     assert.match(await p2.textContent('#k_age'), /28 Oct 2026, 09:15/);
     assert.match(await p2.textContent('#stockTotal'), /33/);
-    await p2.click('[data-tab=udhar]');
+    await p2.click('#menuBtn'); await p2.click('.dr-item[data-tab=udhar]');
     assert.match(await p2.textContent('#udharTotal'), /6,000/);
     assert.equal(await p2.locator('#u_list .ccard').count(), 2);
     await p2.fill('#u_q', 'ali');
@@ -201,24 +201,55 @@ function pagesServer() {
     await p2.click('.sheet header button');
     await p2.screenshot({ path: path.join(shots, 'p6-udhar.png') });
     await p2.fill('#u_q', '');
-    // wholesale karz (what I owe)
-    await p2.click('#um_seg [data-m=karz]');
-    assert.match(await p2.textContent('#udharTotal'), /900/);
-    assert.match(await p2.textContent('#udharLabel'), /Karz to wholesalers/);
-    assert.equal(await p2.locator('#u_list .ccard').count(), 1);
-    await p2.click('#u_list .ccard');
+    // wholesale karz (what I owe) has its own tab
+    await p2.click('#menuBtn');
+    await p2.waitForTimeout(350);
+    await p2.screenshot({ path: path.join(shots, 'p5-drawer.png') });
+    await p2.click('.dr-item[data-tab=karz]');
+    assert.match(await p2.textContent('#karzTotal'), /900/);
+    assert.equal(await p2.locator('#kz_list .ccard').count(), 1);
+    await p2.click('#kz_list .ccard');
     assert.match(await p2.textContent('.sheet'), /Maal on karz/);
     assert.match(await p2.textContent('.sheet'), /Plate × 10/);
     await p2.waitForTimeout(400);
     await p2.screenshot({ path: path.join(shots, 'p6b-karz-sheet.png') });
-    await p2.click('.sheet header button');
-    await p2.screenshot({ path: path.join(shots, 'p6b-karz.png') });
-    await p2.click('#um_seg [data-m=udhar]');
+    // pay the wholesaler from the phone + receipt
+    await p2.click('#cu_pay');
+    assert.equal(await p2.inputValue('#rv_amt'), '900');
+    await p2.fill('#rv_amt', '400');
+    await p2.click('#rv_save');
+    await p2.waitForSelector('#rc_img');
+    await p2.waitForTimeout(300);
+    await p2.screenshot({ path: path.join(shots, 'p6b-karz-receipt.png') });
+    {
+      const su = uploads.find((u) => Object.keys(u.body.files)[0].startsWith('sp-'));
+      assert.ok(su, 'the wholesaler payment was sent online');
+      const got = await require('../docs/stockcrypto.js').decrypt(Object.values(su.body.files)[0].content, pass);
+      assert.equal(got.amount, 400); assert.ok(got.sn);
+    }
+    await p2.click('#rc_new');
+    assert.match(await p2.textContent('#karzTotal'), /500/);
+    // udhar tab: send details as text (SMS / WhatsApp) and as picture
+    await p2.click('#menuBtn'); await p2.click('.dr-item[data-tab=udhar]');
     assert.match(await p2.textContent('#udharTotal'), /6,000/);
+    await p2.fill('#u_q', 'ali');
+    await p2.click('#u_list .ccard');
+    await p2.click('#cu_sms');
+    assert.match(await p2.getAttribute('#sd_sms', 'href'), /^sms:.*body=/);
+    assert.match(await p2.getAttribute('#sd_wa', 'href'), /^https:\/\/wa\.me\/92\d+\?text=/);
+    await p2.screenshot({ path: path.join(shots, 'p6e-sms.png') });
+    await p2.locator('.sheet header button').last().click();
+    await p2.click('#cu_share');
+    await p2.waitForSelector('#rc_img');
+    await p2.waitForTimeout(300);
+    await p2.screenshot({ path: path.join(shots, 'p6f-statement.png') });
+    await p2.click('#rc_new');
+    await p2.locator('.sheet header button').last().click();
+    await p2.fill('#u_q', '');
     // take a payment on the phone (away from the shop)
     await p2.fill('#u_q', 'ali');
     await p2.click('#u_list .ccard');
-    await p2.click('#cu_recv');
+    await p2.click('#cu_pay');
     assert.equal(await p2.inputValue('#rv_amt'), '5200');
     await p2.fill('#rv_amt', '9999');
     await p2.click('#rv_save');
@@ -229,10 +260,10 @@ function pagesServer() {
     await p2.waitForTimeout(300);
     await p2.screenshot({ path: path.join(shots, 'p6c-receive.png') });
     await p2.click('#rv_save');
-    await p2.waitForFunction(() => document.body.textContent.includes('Payment received (this phone)'));
-    assert.match(await p2.textContent('.sheet'), /4,000/);
+    await p2.waitForSelector('#rc_img');
+    assert.match(await p2.textContent('.sheet'), /Saved/);
     await p2.screenshot({ path: path.join(shots, 'p6d-received.png') });
-    await p2.click('.sheet header button');
+    await p2.click('#rc_new');
     assert.match(await p2.textContent('#udharTotal'), /4,800/);
     {
       const pu = uploads.find((u) => Object.keys(u.body.files)[0].startsWith('pay-'));
@@ -242,7 +273,7 @@ function pagesServer() {
       assert.equal(got.amount, 1200); assert.equal(got.cn, 'Ali Khan'); assert.equal(got.method, 'bank'); assert.equal(got.note, 'at the gate');
     }
     await p2.fill('#u_q', '');
-    await p2.click('[data-tab=maal]');
+    await p2.click('#menuBtn'); await p2.click('.dr-item[data-tab=maal]');
     assert.ok((await p2.locator('#suppliers option').count()) >= 2, 'wholesaler names from the laptop are suggested');
     await p2.waitForTimeout(400);
     await p2.screenshot({ path: path.join(shots, 'p5-online.png') });
@@ -251,7 +282,7 @@ function pagesServer() {
     await p2.reload(); await p2.waitForFunction(() => window.__maalReady === true);
     await p2.waitForFunction(() => { const d = JSON.parse(localStorage.getItem('crockery.maal.v1')); return d.products && d.products.items[0].q === 30; }, null, { timeout: 8000 });
     // sell from the phone: choose a customer, add the product, send the bill online
-    await p2.click('[data-tab=bill]');
+    await p2.click('#menuBtn'); await p2.click('.dr-item[data-tab=bill]');
     await p2.click('#b_cust');
     await p2.fill('#cu_q', 'bil');
     await p2.click('#cu_list [data-cid]');
@@ -289,7 +320,7 @@ function pagesServer() {
     const billObj = await StockCrypto.decrypt(billUp.body.files[Object.keys(billUp.body.files)[0]].content, pass);
     assert.equal(billObj.cid, 4); assert.equal(billObj.lines[0].p, 7); assert.equal(billObj.lines[0].q, 2); assert.equal(billObj.paid, 40);
     await p2.click('#rc_new');
-    await p2.click('[data-tab=maal]');
+    await p2.click('#menuBtn'); await p2.click('.dr-item[data-tab=maal]');
     await p2.fill('#name', 'Tea Cup');                                   // stock figure already counts the sold pieces
     assert.match(await p2.textContent('#hint'), /stock 30 pcs − 2 sold from this phone/);
     // write a purchase and send it online
@@ -387,4 +418,4 @@ function pagesServer() {
   store.close();
   assert.deepEqual(errors, [], 'no browser errors: ' + errors.join(' | '));
   console.log('PHONE + IMPORT TEST OK — screenshots in ' + shots);
-})().catch((e) => { console.error('PHONE TEST FAILED:', e); process.exit(1); });
+})().catch((e) => { console.error('PHONE TEST FAILED:', e, typeof errors!=='undefined'?errors:''); process.exit(1); });
