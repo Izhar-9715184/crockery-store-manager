@@ -1,5 +1,5 @@
 'use strict';
-const UNITS = ['pcs', 'set', 'dozen', 'pair', 'box', 'kg'];
+const UNITS = ['pcs', 'set', 'dozen', 'pair', 'box', 'kg', 'gaz'];
 
 function stockBadge(p) {
   if (p.stock <= 0) return `<span class="badge out">${qty(p.stock)} · Out</span>`;
@@ -54,8 +54,8 @@ async function stockInDialog(p, done) {
   const m = modal({
     title: `Stock in — ${p.name}`,
     body: `<div class="form-grid">
-      <label class="f"><span>Quantity received *</span><input type="number" name="qty" min="0" step="any"></label>
-      <label class="f"><span>Cost price (per piece)</span><input type="number" name="cost_price" min="0" step="any" value="${p.cost_price}"></label>
+      <label class="f"><span>Quantity received (${esc(p.unit || 'pcs')}) *</span><input type="number" name="qty" min="0" step="any"></label>
+      <label class="f"><span>Cost price (per ${esc(p.unit || 'pcs')})</span><input type="number" name="cost_price" min="0" step="any" value="${p.cost_price}"></label>
       <label class="f"><span>Wholesaler / supplier</span><input type="text" name="supplier" list="siSups" autocomplete="off" placeholder="Choose or type a name">
         <datalist id="siSups">${sups.map((s) => `<option value="${esc(s.name)}">${s.balance > 0.004 ? 'karz ' + esc(money(s.balance)) : ''}</option>`).join('')}</datalist></label>
       <label class="f"><span>Date</span><input type="date" name="date" value="${today()}"></label>

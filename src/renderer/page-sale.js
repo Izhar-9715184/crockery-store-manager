@@ -83,9 +83,9 @@ App.pages.sale = {
 
     // ----- cart
     function drawCart() {
-      el('cart').innerHTML = cart.items.length ? `<table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th><th></th></tr></thead><tbody>
-        ${cart.items.map((i, idx) => `<tr data-idx="${idx}"><td>${esc(i.name)}<div class="muted small">${qty(i.stock)} in stock</div></td>
-          <td class="r"><input class="qty" type="number" min="0" step="any" value="${i.qty}" data-f="qty"></td>
+      el('cart').innerHTML = cart.items.length ? `<table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price (per unit)</th><th class="r">Amount</th><th></th></tr></thead><tbody>
+        ${cart.items.map((i, idx) => `<tr data-idx="${idx}"><td>${esc(i.name)}<div class="muted small">${qty(i.stock)} ${esc(i.unit || 'pcs')} in stock</div></td>
+          <td class="r"><input class="qty" type="number" min="0" step="any" value="${i.qty}" data-f="qty">${i.unit && i.unit !== 'pcs' ? `<div class="muted small">${esc(i.unit)}</div>` : ''}</td>
           <td class="r"><input class="price" type="number" min="0" step="any" value="${i.price}" data-f="price"></td>
           <td class="r num" data-line>${qty((Number(i.qty) || 0) * (Number(i.price) || 0))}</td>
           <td><button class="icon-btn" data-del title="Remove">×</button></td></tr>`).join('')}</tbody></table>`

@@ -185,7 +185,7 @@
     $('#count').textContent = t.items ? `${t.items} item${t.items === 1 ? '' : 's'}` : '';
     $('#lines').innerHTML = b.lines.length
       ? b.lines.map((l, i) => `<div class="line${popIdx === i ? ' pop' : ''}" data-i="${i}">${avatar(l.n)}<div class="main" data-edit="${i}"><div class="nm">${esc(l.n)}</div>
-          <div class="calc">${fmt(l.q)} × ${fmt(l.c)}${l.s ? ` · sale ${fmt(l.s)}` : ''}</div></div>
+          <div class="calc">${fmt(l.q)}${uSfx(l)} × ${fmt(l.c)}${l.s ? ` · sale ${fmt(l.s)}` : ''}</div></div>
           <div class="sum">${fmt(l.q * l.c)}</div><button class="x" data-del="${i}" aria-label="Remove">×</button></div>`).join('')
       : `<div class="empty">${CUP}<b>Nothing added yet</b><br>Add each item you buy, one by one.</div>`;
     popIdx = -1;
@@ -204,9 +204,15 @@
     const c = num($('#cost').value);
     $('#amt').textContent = Number.isFinite(q) && Number.isFinite(c) ? `= ${money(q * c)}` : '';
   }
+  const unitOf = (l) => { const it = ((data.products && data.products.items) || []).find((p) => (l.p && p.i === l.p) || norm(p.n) === norm(l.n)); return (it && it.u) || l.u || 'pcs'; };
+  const uSfx = (l) => { const u = unitOf(l); return u === 'pcs' ? '' : ' ' + u; };
   function updateHint() {
     const p = knownProduct($('#name').value);
     const h = $('#hint');
+    const un = p ? (p.u || 'pcs') : ($('#unit').value || 'pcs');
+    $('#unitRow').hidden = !!p;
+    $('#qtyLbl').textContent = un === 'pcs' ? 'Quantity' : `Quantity (${un})`;
+    $('#costLbl').textContent = un === 'pcs' ? 'Cost price (each)' : `Cost price (per ${un})`;
     if (!p) { h.hidden = true; return; }
     h.hidden = false;
     h.textContent = `In your shop: ${stockText(p)} · cost ${fmt(p.c)} · sale price ${fmt(p.s)}`;
@@ -224,13 +230,16 @@
     if (!(q > 0)) return toast('Write how many pieces (more than 0)', true);
     if (!(c >= 0)) return toast('Write the cost price of one piece (0 if free)', true);
     if (s !== null && !(s >= 0)) return toast('Sale price is not a number', true);
+    const kp = knownProduct(name);
     const line = { n: name, q, c };
+    if (!kp && $('#unit').value && $('#unit').value !== 'pcs') line.u = $('#unit').value;
     if (s !== null) line.s = s;
     b.lines.push(line);
     popIdx = b.lines.length - 1;
     try { navigator.vibrate && navigator.vibrate(12); } catch (e) { /* ignore */ }
     save();
     for (const id of ['name', 'qty', 'cost', 'sale']) $('#' + id).value = '';
+    $('#unit').value = 'pcs';
     $('#more').open = false;
     updateAmt(); updateHint(); renderLines(); renderFields();
     $('#name').focus();
@@ -286,14 +295,14 @@
   function summaryText(b) {
     const _p = payAmount(b), _t = totals(b).amount;
     const t = totals(b);
-    const lines = b.lines.map((l, i) => `${i + 1}. ${l.n} — ${fmt(l.q)} x ${fmt(l.c)} = ${fmt(l.q * l.c)}`);
+    const lines = b.lines.map((l, i) => `${i + 1}. ${l.n} — ${fmt(l.q)}${uSfx(l)} x ${fmt(l.c)} = ${fmt(l.q * l.c)}`);
     return [`Maal entry — ${nice(b.date)}`, b.supplier ? `Supplier: ${b.supplier}` : null, ...lines, `Total: ${fmt(t.qty)} pcs, ${money(t.amount)}`, _p === undefined ? null : (_p >= _t ? 'Paid in full' : `Paid ${money(_p)}, karz ${money(_t - _p)}`)]
       .filter(Boolean).join('\n');
   }
   function packedText(b) {
     const payload = {
       v: 1, id: b.id, date: b.date, supplier: b.supplier || '', ...(payAmount(b) === undefined ? {} : { paid: payAmount(b) }),
-      lines: b.lines.map((l) => (l.s !== undefined ? { n: l.n, q: l.q, c: l.c, s: l.s } : { n: l.n, q: l.q, c: l.c })),
+      lines: b.lines.map((l) => (l.s !== undefined ? { n: l.n, q: l.q, c: l.c, s: l.s, ...(l.u ? { u: l.u } : {}) } : { n: l.n, q: l.q, c: l.c, ...(l.u ? { u: l.u } : {}) })),
     };
     return `${summaryText(b)}\n\n(Do not change anything below this line)\n${self.Packing.pack('CROCKERY-MAAL', payload)}`;
   }
@@ -308,7 +317,7 @@
     if (!data.sync || !data.sync.key) throw new Error('This phone is not connected for sending. Open the link from the laptop again.');
     if (!navigator.onLine) throw new Error('No internet. Use "Copy message" or try again later.');
     const payload = { v: 1, id: b.id, date: b.date, supplier: b.supplier || '', ...(payAmount(b) === undefined ? {} : { paid: payAmount(b) }),
-      lines: b.lines.map((l) => (l.s !== undefined ? { n: l.n, q: l.q, c: l.c, s: l.s } : { n: l.n, q: l.q, c: l.c })) };
+      lines: b.lines.map((l) => (l.s !== undefined ? { n: l.n, q: l.q, c: l.c, s: l.s, ...(l.u ? { u: l.u } : {}) } : { n: l.n, q: l.q, c: l.c, ...(l.u ? { u: l.u } : {}) })) };
     const content = await self.StockCrypto.encrypt(payload, data.sync.pass);
     const r = await fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: { ['maal-' + b.id + '.json']: { content } } }) });
@@ -378,7 +387,7 @@
   }
 
   // ------------------------------------------------------------------ menu, history, product list, help
-  const PAGE_VERSION = 'v1.1.8';   // shown in the menu so you can tell which page this phone has
+  const PAGE_VERSION = 'v1.1.9';   // shown in the menu so you can tell which page this phone has
   const drawerOpen = (on) => {
     $('#drawerWrap').hidden = !on;
     $('#menuBtn').setAttribute('aria-expanded', on ? 'true' : 'false');
@@ -420,7 +429,7 @@
   function openBatch(b) {
     if (!b) return;
     const s = sheet(`${nice(b.date)}${b.supplier ? ' · ' + b.supplier : ''}`, `
-      ${b.lines.map((l) => `<div class="item-row"><b>${esc(l.n)}</b><div class="muted small">${fmt(l.q)} × ${fmt(l.c)} = ${fmt(l.q * l.c)}</div></div>`).join('')}
+      ${b.lines.map((l) => `<div class="item-row"><b>${esc(l.n)}</b><div class="muted small">${fmt(l.q)}${uSfx(l)} × ${fmt(l.c)} = ${fmt(l.q * l.c)}</div></div>`).join('')}
       <div class="item-row"><b>Total: ${money(totals(b).amount)}</b></div>
       <button class="btn primary block" id="b_send">${b.sentAt ? 'Send again' : 'Send to laptop'}</button>
       ${b.sentAt ? '<button class="btn block" id="b_copy">Copy to a new list</button>' : '<button class="btn block" id="b_cont">Continue editing this list</button>'}
@@ -517,7 +526,7 @@
     $('#b_count').textContent = c.lines.length ? `${c.lines.length} item${c.lines.length === 1 ? '' : 's'}` : '';
     $('#b_lines').innerHTML = c.lines.length ? c.lines.map((l, i) => { const st = stockOf(l); const over = st !== null && (num(String(l.q)) || 0) > st;
       return `<div class="line bl" data-bi="${i}">${avatar(l.n)}<div class="main"><div class="nm">${esc(l.n)}</div>
-        <div class="calc">${over ? `<span class="warn">only ${fmt(Math.max(0, st))} in stock</span>` : `Rs <input class="mini" data-f="pr" inputmode="decimal" value="${esc(l.pr)}">`}</div></div>
+        <div class="calc">${over ? `<span class="warn">only ${fmt(Math.max(0, st))} in stock</span>` : `Rs <input class="mini" data-f="pr" inputmode="decimal" value="${esc(l.pr)}">${uSfx(l) ? ' per' + uSfx(l) : ''}`}</div></div>
         <div class="stepper"><button data-step="-1" aria-label="Less">−</button><input class="mini q" data-f="q" inputmode="decimal" value="${esc(l.q)}"><button data-step="1" aria-label="More">+</button></div>
         <button class="x" data-bdel="${i}" aria-label="Remove">×</button></div>`; }).join('')
       : `<div class="empty">${CUP}<b>No items yet</b><br>Tap a product above to add it.</div>`;
@@ -565,7 +574,7 @@
     draw();
   }
   function billText(bl) {
-    const lines = bl.lines.map((l, i) => `${i + 1}. ${l.n} — ${fmt(l.q)} x ${fmt(l.pr)} = ${fmt(l.q * l.pr)}`);
+    const lines = bl.lines.map((l, i) => `${i + 1}. ${l.n} — ${fmt(l.q)}${uSfx(l)} x ${fmt(l.pr)}${uSfx(l) ? ' per' + uSfx(l) : ''} = ${fmt(l.q * l.pr)}`);
     const shop = (data.products && data.products.shop) || '';
     return [shop ? `*${shop}*` : null, `Bill — ${nice(bl.date)}`, bl.cn ? `Customer: ${bl.cn}` : null, ...lines, `Total: Rs ${fmt(bl.total)}`, `Received: Rs ${fmt(bl.paidAmt)}`, bl.due > 0 ? `Udhar: Rs ${fmt(bl.due)}` : 'Paid in full', 'Thank you!'].filter(Boolean).join('\n');
   }
@@ -639,7 +648,7 @@
   /** The receipt: picture on screen, then Share (WhatsApp) / Save picture / Save PDF. */
   function openReceipt(bl, msg) {
     const shop = (data.products && data.products.shop) || '';
-    const canvas = self.Receipt.draw(bl, shop);
+    const canvas = self.Receipt.draw({ ...bl, lines: bl.lines.map((l) => ({ ...l, u: unitOf(l) })) }, shop);
     const s = sheet('Receipt', `<img id="rc_img" class="receipt-img" alt="Receipt" src="${canvas.toDataURL('image/png')}">
       ${msg ? `<p class="muted small">${esc(msg)}</p>` : ''}
       <button class="btn primary block big" id="rc_share">Share (WhatsApp)</button>
@@ -891,6 +900,7 @@
     $('#date').addEventListener('change', () => { const b = ensureCurrent(); b.date = $('#date').value || ymd(new Date()); save(); });
     $('#name').addEventListener('input', updateHint);
     $('#name').addEventListener('change', updateHint);
+    $('#unit').addEventListener('change', updateHint);
     $('#qty').addEventListener('input', updateAmt);
     $('#qchips').addEventListener('click', (e) => { const b = e.target.closest('[data-q]'); if (!b) return; $('#qty').value = b.dataset.q; updateAmt(); $('#cost').focus(); });
     $('#cost').addEventListener('input', updateAmt);

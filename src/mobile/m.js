@@ -417,7 +417,7 @@ function productForm(p, done) {
       <label class="f"><span>Category</span><input type="text" name="category" value="${esc(p.category || '')}"></label></div>
     <div class="grid2"><label class="f"><span>Cost price</span><input type="number" inputmode="decimal" name="cost_price" min="0" step="any" value="${p.cost_price}"></label>
       <label class="f"><span>Sale price</span><input type="number" inputmode="decimal" name="sale_price" min="0" step="any" value="${p.sale_price}"></label></div>
-    <div class="grid2"><label class="f"><span>Unit</span><select name="unit">${['pcs', 'set', 'dozen', 'pair', 'box', 'kg'].map((u) => `<option ${u === p.unit ? 'selected' : ''}>${u}</option>`).join('')}</select></label>
+    <div class="grid2"><label class="f"><span>Unit</span><select name="unit">${['pcs', 'set', 'dozen', 'pair', 'box', 'kg', 'gaz'].map((u) => `<option ${u === p.unit ? 'selected' : ''}>${u}</option>`).join('')}</select></label>
       <label class="f"><span>Low stock alert at</span><input type="number" inputmode="decimal" name="min_stock" min="0" step="any" value="${p.min_stock}"></label></div>
     ${isNew ? '<label class="f"><span>Opening stock</span><input type="number" inputmode="decimal" name="stock" min="0" step="any"></label>' : ''}</div>`,
   [

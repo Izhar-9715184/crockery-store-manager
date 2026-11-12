@@ -253,4 +253,8 @@ Settings -> **Stock online for the phone**: GitHub token (sirf "gist" permission
 
 ## v1.1.8
 - Phone: side bar (menu ☰) instead of the bottom bar; separate **Wholesale karz** tab; **Payment received** (customers) and **Payment given** (wholesalers) with picture/PDF receipts; send udhar/karz details by WhatsApp (picture/PDF) or SMS/WhatsApp text.
+- Units: added "gaz".
 - Laptop: receipt after paying a wholesaler (PDF / picture / print).
+
+## v1.1.9
+- Unit **gaz** (laptop, old mobile page, phone page). Phone: new-product unit choice, labels say "per gaz", bills/receipts show "2.5 gaz". Decimal quantities (2.5 gaz) work for selling. Laptop receipts show the unit.

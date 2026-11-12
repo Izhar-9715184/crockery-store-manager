@@ -47,7 +47,7 @@
       let n = String(l.n); while (g.measureText(n).width > 200 && n.length > 3) n = n.slice(0, -2);
       g.fillText(n === String(l.n) ? n : n + '…', 36, y + 29);
       g.textAlign = 'right'; g.font = `500 15px ${FONT}`; g.fillStyle = '#4b5a53';
-      g.fillText(`${fmt(l.q)} × ${fmt(l.pr)}`, 380, y + 29);
+      g.fillText(`${fmt(l.q)}${l.u && l.u !== 'pcs' ? ' ' + l.u : ''} × ${fmt(l.pr)}`, 380, y + 29);
       g.fillStyle = '#14261f'; g.font = `800 16px ${FONT}`; g.fillText(fmt(l.q * l.pr), W - 36, y + 29);
       y += 46;
     });

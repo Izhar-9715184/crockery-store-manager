@@ -51,10 +51,11 @@
         <datalist id="plist"></datalist>
         <div id="hint" class="hint" hidden></div>
         <div class="row2">
-          <label class="f"><span>Quantity</span><input id="qty" type="text" inputmode="decimal" placeholder="24"></label>
-          <label class="f"><span>Cost price (each)</span><input id="cost" type="text" inputmode="decimal" placeholder="120"></label>
+          <label class="f"><span id="qtyLbl">Quantity</span><input id="qty" type="text" inputmode="decimal" placeholder="24"></label>
+          <label class="f"><span id="costLbl">Cost price (each)</span><input id="cost" type="text" inputmode="decimal" placeholder="120"></label>
         </div>
         <div class="qchips" id="qchips" aria-label="Quick quantity"><button type="button" data-q="6">6</button><button type="button" data-q="12">12</button><button type="button" data-q="24">24</button><button type="button" data-q="36">36</button><button type="button" data-q="48">48</button><button type="button" data-q="100">100</button></div>
+        <div class="f" id="unitRow"><label class="f" style="margin:0"><span>Unit (for a new product)</span><select id="unit"><option>pcs</option><option>set</option><option>dozen</option><option>pair</option><option>box</option><option>kg</option><option>gaz</option></select></label></div>
         <details id="more"><summary>Sale price (only for new products)</summary>
           <label class="f"><span>Sale price (each)</span><input id="sale" type="text" inputmode="decimal" placeholder="optional"></label>
         </details>

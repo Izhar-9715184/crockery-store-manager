@@ -222,11 +222,12 @@ function shopHeader(s, title = '', sub = '') {
     ${title ? `<div class="inv-title"><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</div>` : ''}</div>`;
 }
 
+const uOf = (i) => (i.unit && i.unit !== 'pcs' ? ' ' + esc(i.unit) : '');
 function invoiceHtml(sale, s = App.settings, paper = paperOf(s)) {
   const cancelled = sale.status === 'cancelled';
   if (paper === 'thermal') {
     const rows = sale.items.map((i) => `<tr><td colspan="3" class="nm">${esc(i.name)}</td></tr>
-      <tr><td>${qty(i.qty)} × ${qty(i.price)}</td><td></td><td class="r">${qty(i.total)}</td></tr>`).join('');
+      <tr><td>${qty(i.qty)}${uOf(i)} × ${qty(i.price)}</td><td></td><td class="r">${qty(i.total)}</td></tr>`).join('');
     return `<div class="inv thermal">
       <div class="th-head"><div class="inv-logo">${initialOf(s)}</div><div class="inv-name">${esc(s.shop_name)}</div>
         <div class="th-sub">${esc(s.shop_address || '')}${s.shop_phone ? '<br>Phone: ' + esc(s.shop_phone) : ''}</div></div>
@@ -246,7 +247,7 @@ function invoiceHtml(sale, s = App.settings, paper = paperOf(s)) {
       <div class="th-thanks">${esc(s.invoice_footer || 'Thank you for shopping with us!')}</div></div>`;
   }
   const rows = sale.items.map((i, n) => `<tr><td class="c">${n + 1}</td><td>${esc(i.name)}</td>
-      <td class="r">${qty(i.qty)}</td><td class="r">${qty(i.price)}</td><td class="r"><b>${qty(i.total)}</b></td></tr>`).join('');
+      <td class="r">${qty(i.qty)}${uOf(i)}</td><td class="r">${qty(i.price)}</td><td class="r"><b>${qty(i.total)}</b></td></tr>`).join('');
   const addr = [sale.customer_phone, sale.customer_address].filter(Boolean).join(' · ');
   return `<div class="inv ${paper}">
     ${shopHeader(s, 'INVOICE', sale.due > 0 ? 'Credit Memo' : 'Cash Memo')}

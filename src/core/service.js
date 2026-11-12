@@ -626,7 +626,7 @@ function createService(store) {
       `SELECT s.*, c.name AS customer_name, c.phone AS customer_phone, c.address AS customer_address
        FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?`, id);
     if (!sale) return null;
-    sale.items = store.all('SELECT * FROM sale_items WHERE sale_id=? ORDER BY id', id);
+    sale.items = store.all('SELECT si.*, p.unit AS unit FROM sale_items si LEFT JOIN products p ON p.id = si.product_id WHERE si.sale_id=? ORDER BY si.id', id);
     if (sale.customer_id) sale.customer_balance = S.getCustomer(sale.customer_id).balance;
     return sale;
   };
@@ -832,7 +832,8 @@ function createService(store) {
       if (!Number.isFinite(q) || q <= 0 || q > 1e6) fail(`Line ${i + 1} (${name}): quantity is invalid`);
       if (!Number.isFinite(c) || c < 0 || c > 1e9) fail(`Line ${i + 1} (${name}): cost price is invalid`);
       if (s !== null && (!Number.isFinite(s) || s < 0 || s > 1e9)) fail(`Line ${i + 1} (${name}): sale price is invalid`);
-      return { name, qty: q, cost: r2(c), sale_price: s === null ? null : r2(s) };
+      const u = clean(l.u).toLowerCase().slice(0, 12);
+      return { name, qty: q, cost: r2(c), sale_price: s === null ? null : r2(s), unit: u || 'pcs' };
     });
     // paid = money paid to the wholesaler at once (0 = everything on karz). Absent = karz is not tracked.
     const paid = b.paid === undefined || b.paid === null || b.paid === '' ? undefined : Number(b.paid);
@@ -892,7 +893,7 @@ function createService(store) {
           if (!store.get('SELECT id FROM products WHERE id = ? AND active = 1', productId)) fail(`Line ${i + 1}: the chosen product no longer exists`);
         } else if (d.action === 'new') {
           const sale = d.sale_price === undefined || d.sale_price === '' || d.sale_price === null ? l.sale_price : Number(d.sale_price);
-          productId = S.saveProduct({ name: l.name, cost_price: l.cost, sale_price: sale === null || sale === undefined ? 0 : sale, stock: 0 }).id;
+          productId = S.saveProduct({ name: l.name, cost_price: l.cost, sale_price: sale === null || sale === undefined ? 0 : sale, stock: 0, unit: l.unit || 'pcs' }).id;
           created++;
         } else fail(`Line ${i + 1}: please choose what to do`);
         const r = doStockIn({ product_id: productId, qty: l.qty, cost_price: l.cost, supplier: batch.supplier, date: batch.date, note: `Phone list ${batch.id}` });
