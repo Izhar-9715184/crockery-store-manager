@@ -208,3 +208,38 @@ test('payment to a wholesaler made on the phone: counted once', async () => {
     assert.equal(service.listSuppliers({})[0].balance, 3000);
   } finally { srv.close(); store.close(); }
 });
+
+test('key: a failed connect never wipes a working connection; replaceToken keeps the link and the phone can read the new key', async () => {
+  const { srv, gists, api } = await fakeGithub();
+  const { ss } = setup(api);
+  try {
+    const st = await ss.connect('ghp_goodtoken_goodtoken_1234');
+    const link = st.link;
+    // trying a wrong token must leave everything as it was (even after a save to disk)
+    await assert.rejects(ss.connect('ghp_wrongtoken_wrongtoken_99'));
+    ss._save();
+    assert.equal(ss.status().state, 'ok');
+    assert.equal(ss.status().link, link);
+    // renew: a bad token is refused and changes nothing
+    await assert.rejects(ss.replaceToken('ghp_wrongtoken_wrongtoken_99'), /did not accept/);
+    assert.equal(ss.s.token, 'ghp_goodtoken_goodtoken_1234');
+    // the locked copy carries the current key, so a phone with an old link gets the new one by itself
+    const pass = link.split('#sync=')[1].split('&')[0].split('.')[1];
+    const snap = await StockCrypto.decrypt(gists['a'.repeat(32)]['stock.json'].content, pass);
+    assert.equal(snap.key, 'ghp_goodtoken_goodtoken_1234');
+    // the saved file keeps the connection across a restart
+    const again = new (require('../src/cloud/stocksync').StockSync)({ service: ss.service, store: ss.store, dir: path.dirname(ss.file), api });
+    assert.equal(again.status().link, link);
+  } finally { srv.close(); }
+});
+
+test('key: expiry date from the GitHub header is reported', async () => {
+  const { srv, api } = await fakeGithub();
+  const { ss } = setup(api);
+  try {
+    await ss.connect('ghp_goodtoken_goodtoken_1234');
+    ss.s.tokenExp = new Date(Date.now() + 5 * 86400000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+    const st = ss.status();
+    assert.ok(st.tokenDaysLeft >= 4 && st.tokenDaysLeft <= 6, 'days left: ' + st.tokenDaysLeft);
+  } finally { srv.close(); }
+});

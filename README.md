@@ -258,3 +258,9 @@ Settings -> **Stock online for the phone**: GitHub token (sirf "gist" permission
 
 ## v1.1.9
 - Unit **gaz** (laptop, old mobile page, phone page). Phone: new-product unit choice, labels say "per gaz", bills/receipts show "2.5 gaz". Decimal quantities (2.5 gaz) work for selling. Laptop receipts show the unit.
+
+## v1.2.0
+- Products: **Edit / delete categories** (next to Category in Add/Edit product).
+- Online stock key: a failed "Connect" no longer wipes a working connection; **Change key** (Settings) keeps the phone link; the key's expiry date is shown; the phone gets a renewed key by itself and keeps the connection in 3 places so a browser clean-up cannot lose it.
+- Faster: laptop sends changes within ~3 s and looks for phone bills every ~12 s (screen refreshes by itself); phone checks every 8 s while open (nothing downloaded when nothing changed).
+- `update.bat`: one double-click does commit + push + new tag + checks the phone page.

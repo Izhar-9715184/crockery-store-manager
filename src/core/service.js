@@ -78,6 +78,28 @@ function createService(store) {
     store.all("SELECT DISTINCT category FROM products WHERE active=1 AND category <> '' ORDER BY category")
       .map((r) => r.category);
 
+  /** Categories with how many products use each (for the "Edit / delete categories" window). */
+  S.listCategoriesDetailed = () =>
+    store.all("SELECT category AS name, COUNT(*) AS count FROM products WHERE active=1 AND category <> '' GROUP BY category ORDER BY category COLLATE NOCASE");
+  /** Rename a category: every product in it moves to the new name (joins an existing category with that name). */
+  S.renameCategory = ({ from, to }) =>
+    store.tx(() => {
+      from = clean(from); to = clean(to);
+      if (!from) fail('Choose a category');
+      if (!to) fail('Write the new name');
+      if (to.length > 60) fail('Category name is too long');
+      const r = store.run('UPDATE products SET category = ? WHERE category = ?', to, from);
+      return { changed: r.changes || 0 };
+    });
+  /** Delete a category: its products stay, they just have no category any more. */
+  S.deleteCategory = (name) =>
+    store.tx(() => {
+      name = clean(name);
+      if (!name) fail('Choose a category');
+      const r = store.run("UPDATE products SET category = '' WHERE category = ?", name);
+      return { changed: r.changes || 0 };
+    });
+
   S.saveProduct = (p) =>
     store.tx(() => {
       const name = clean(p.name);

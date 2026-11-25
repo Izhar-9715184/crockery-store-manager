@@ -34,8 +34,41 @@
     return { batches: [], currentId: null, suppliers: [], products: null, sync: null, udhar: null, karz: null, pays: [], spays: [], sups: [], custAll: [], bills: [], cart: null };
   }
   let data = load();
+  // The connection (link + key) is the one thing that must never be lost, so it is kept in three places:
+  // the main saved data, a small separate copy, and IndexedDB. If the browser clears one, the others bring it back.
+  const SYNC_BAK = 'crockery.sync.bak';
+  const idb = (mode, fn) => new Promise((resolve) => {
+    try {
+      const rq = indexedDB.open('crockery-keep', 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+      rq.onerror = () => resolve(null);
+      rq.onsuccess = () => { try { const tx = rq.result.transaction('kv', mode); const out = fn(tx.objectStore('kv')); tx.oncomplete = () => resolve(out && out.result !== undefined ? out.result : null); tx.onerror = () => resolve(null); } catch (e) { resolve(null); } };
+    } catch (e) { resolve(null); }
+  });
+  let lastSyncSaved = '';
+  function backupSync() {
+    const v = data.sync ? JSON.stringify(data.sync) : '';
+    if (v === lastSyncSaved) return;
+    lastSyncSaved = v;
+    if (!v) return;   // an empty connection never overwrites a good copy (only "Disconnect" clears it, see below)
+    try { localStorage.setItem(SYNC_BAK, v); } catch (e) { /* ignore */ }
+    idb('readwrite', (st) => st.put(v, 'sync'));
+  }
+  const validSync = (o) => !!(o && /^[0-9a-f]{20,40}$/i.test(o.id || '') && /^[a-z0-9]{6,32}$/i.test(o.pass || ''));
+  async function restoreSync() {
+    if (data.sync) return false;
+    let o = null;
+    try { o = JSON.parse(localStorage.getItem(SYNC_BAK) || 'null'); } catch (e) { /* ignore */ }
+    if (!validSync(o)) { const v = await idb('readonly', (st) => st.get('sync')); try { o = JSON.parse(v || 'null'); } catch (e) { o = null; } }
+    if (!validSync(o)) return false;
+    data.sync = { id: o.id, pass: o.pass, key: typeof o.key === 'string' ? o.key : '' };
+    save();
+    return true;
+  }
+  function forgetSyncBackup() { lastSyncSaved = ''; try { localStorage.removeItem(SYNC_BAK); } catch (e) { /* ignore */ } idb('readwrite', (st) => st.delete('sync')); }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(data)); saveOk = true; } catch (e) { saveOk = false; }
+    backupSync();
     banner();
   }
   function banner() {
@@ -123,21 +156,37 @@
   // ---- online stock: the laptop keeps a locked copy in a secret GitHub Gist; the phone reads it
   const GIST_API = 'https://api.github.com/gists/';
   let syncMsg = '';
+  let lastEtag = '';
   function readSyncLink() {
     const m = /[#&]sync=([0-9a-f]{20,40})\.([a-z0-9]{6,32})/i.exec(location.hash || '');
     if (!m) return false;
     const k = /[#&]key=([A-Za-z0-9_]{20,120})/.exec(location.hash || '');
-    data.sync = { id: m[1], pass: m[2], key: k ? k[1] : '' };
+    data.sync = { id: m[1], pass: m[2], key: k ? k[1] : (data.sync && data.sync.id === m[1] ? data.sync.key : '') };
     save();
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
     return true;
+  }
+  /** Send one file to the shared copy. If GitHub says the key is old, fetch the renewed key from the laptop's copy and try once more. */
+  async function gistPatch(body) {
+    const go = () => fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body });
+    let r = await go();
+    if (r.status === 401) { const before = data.sync.key; lastEtag = ''; await fetchOnline(false); if (data.sync.key && data.sync.key !== before) r = await go(); }
+    return r;
   }
   async function fetchOnline(showErr) {
     if (!data.sync) return false;
     if (!navigator.onLine) { syncMsg = 'Offline — showing the last copy saved on this phone'; return false; }
     try {
-      const r = await fetch(GIST_API + data.sync.id, { cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } });
+      const hd = { Accept: 'application/vnd.github+json' };
+      if (data.sync.key) hd.Authorization = 'Bearer ' + data.sync.key;     // signed-in reads have a much bigger allowance
+      if (lastEtag && !showErr && data.products) hd['If-None-Match'] = lastEtag;
+      let r = await fetch(GIST_API + data.sync.id, { cache: 'no-store', headers: hd });
+      if (r.status === 401 && hd.Authorization) {                          // old key: reading needs no key, keep working
+        delete hd.Authorization; r = await fetch(GIST_API + data.sync.id, { cache: 'no-store', headers: hd });
+      }
+      if (r.status === 304) { syncMsg = 'Up to date'; return true; }
       if (!r.ok) throw new Error(r.status === 404 ? 'The online copy was not found. Ask for a new link from the laptop.' : r.status === 403 ? 'Too many tries. Wait a little and try again.' : 'Could not reach the online copy');
+      const etag = r.headers.get('etag') || '';
       const g = await r.json();
       const f = g.files && (g.files['stock.json'] || Object.values(g.files)[0]);
       if (!f) throw new Error('The online copy is empty');
@@ -145,6 +194,8 @@
       if (f.truncated && f.raw_url) text = await (await fetch(f.raw_url, { cache: 'no-store' })).text();
       const obj = await self.StockCrypto.decrypt(text, data.sync.pass);
       if (!obj || !Array.isArray(obj.items)) throw new Error('The online copy is not a stock list');
+      // the laptop puts the current GitHub key inside the locked copy: a renewed key reaches the phone by itself
+      if (typeof obj.key === 'string' && /^[A-Za-z0-9_]{20,120}$/.test(obj.key) && obj.key !== data.sync.key) data.sync.key = obj.key;
       const items = obj.items.slice(0, 5000).map((x) => {
         const o = { i: Number(x.i) || 0, n: String(x.n).slice(0, 200), k: String(x.k || '').slice(0, 60), c: Number(x.c) || 0, s: Number(x.s) || 0 };
         if (x.q !== undefined && Number.isFinite(Number(x.q))) { o.q = Number(x.q); o.u = String(x.u || '').slice(0, 20); }
@@ -159,6 +210,7 @@
       data.spays = (data.spays || []).filter((x) => x.status === 'pending' || !(data.products.spaysDone || []).includes(x.id) || Date.now() - x.at < 3 * 86400000).slice(0, 60);
       data.bills = data.bills.filter((bl) => bl.status === 'pending' || !(data.products.billsDone || []).includes(bl.id) || Date.now() - bl.at < 3 * 86400000).slice(0, 30);
       save(); renderFields(); updateHint(); renderStock(); renderUdhar(); renderKarz(); renderBill();
+      lastEtag = etag;
       syncMsg = `Updated online · ${items.length} products`;
       return true;
     } catch (e) {
@@ -319,9 +371,8 @@
     const payload = { v: 1, id: b.id, date: b.date, supplier: b.supplier || '', ...(payAmount(b) === undefined ? {} : { paid: payAmount(b) }),
       lines: b.lines.map((l) => (l.s !== undefined ? { n: l.n, q: l.q, c: l.c, s: l.s, ...(l.u ? { u: l.u } : {}) } : { n: l.n, q: l.q, c: l.c, ...(l.u ? { u: l.u } : {}) })) };
     const content = await self.StockCrypto.encrypt(payload, data.sync.pass);
-    const r = await fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files: { ['maal-' + b.id + '.json']: { content } } }) });
-    if (!r.ok) throw new Error(r.status === 401 ? 'The key in the link is not accepted. Open a fresh link from the laptop.' : `Could not send (${r.status}). Try again.`);
+    const r = await gistPatch(JSON.stringify({ files: { ['maal-' + b.id + '.json']: { content } } }));
+    if (!r.ok) throw new Error(r.status === 401 ? 'The GitHub key is not accepted. Ask the shop to press “Change key” on the laptop, then open this page again here.' : `Could not send (${r.status}). Try again.`);
     b.online = true;
     if (!b.sentAt) b.sentAt = Date.now();
     if (data.currentId === b.id) data.currentId = null;
@@ -387,7 +438,7 @@
   }
 
   // ------------------------------------------------------------------ menu, history, product list, help
-  const PAGE_VERSION = 'v1.1.9';   // shown in the menu so you can tell which page this phone has
+  const PAGE_VERSION = 'v1.2.0';   // shown in the menu so you can tell which page this phone has
   const drawerOpen = (on) => {
     $('#drawerWrap').hidden = !on;
     $('#menuBtn').setAttribute('aria-expanded', on ? 'true' : 'false');
@@ -460,14 +511,14 @@
     const now = $('#o_now', s.el);
     if (now) now.addEventListener('click', async () => { now.disabled = true; const ok = await fetchOnline(true); s.close(); if (ok) toast('Stock updated'); });
     const off = $('#o_off', s.el);
-    if (off) off.addEventListener('click', () => { data.sync = null; save(); s.close(); toast('Disconnected'); });
+    if (off) off.addEventListener('click', () => { data.sync = null; forgetSyncBackup(); save(); s.close(); toast('Disconnected'); });
     const go = $('#o_go', s.el);
     if (go) go.addEventListener('click', async () => {
       const val = $('#o_link', s.el).value;
       const m = /sync=([0-9a-f]{20,40})\.([a-z0-9]{6,32})/i.exec(val);
       if (!m) return toast('This is not a valid link', true);
       const k = /key=([A-Za-z0-9_]{20,120})/.exec(val);
-      data.sync = { id: m[1], pass: m[2], key: k ? k[1] : '' }; save();
+      data.sync = { id: m[1], pass: m[2], key: k ? k[1] : (data.sync && data.sync.id === m[1] ? data.sync.key : '') }; save();
       go.disabled = true;
       const ok = await fetchOnline(true); s.close(); if (ok) toast('Connected. Stock loaded.');
     });
@@ -584,9 +635,8 @@
     const payload = { v: 1, id: bl.id, date: bl.date, cid: bl.cid || 0, cn: bl.cn || '', discount: bl.disc, paid: bl.paid, method: bl.method, note: bl.note,
       lines: bl.lines.map((l) => ({ p: l.p, n: l.n, q: l.q, pr: l.pr })) };
     const content = await self.StockCrypto.encrypt(payload, data.sync.pass);
-    const r = await fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files: { ['bill-' + bl.id + '.json']: { content } } }) });
-    if (!r.ok) throw new Error(r.status === 401 ? 'The key in the link is not accepted. Open a fresh link from the laptop.' : `Could not send (${r.status}). Try again.`);
+    const r = await gistPatch(JSON.stringify({ files: { ['bill-' + bl.id + '.json']: { content } } }));
+    if (!r.ok) throw new Error(r.status === 401 ? 'The GitHub key is not accepted. Ask the shop to press “Change key” on the laptop, then open this page again here.' : `Could not send (${r.status}). Try again.`);
     bl.status = 'sent';
     save();
   }
@@ -594,9 +644,8 @@
     if (!data.sync || !data.sync.key) throw new Error('This phone is not connected for sending. Open the link from the laptop again.');
     if (!navigator.onLine) throw new Error('offline');
     const content = await self.StockCrypto.encrypt({ v: 1, id: py.id, date: py.date, cn: py.cn, amount: py.amount, method: py.method, note: py.note }, data.sync.pass);
-    const r = await fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files: { ['pay-' + py.id + '.json']: { content } } }) });
-    if (!r.ok) throw new Error(r.status === 401 ? 'The key in the link is not accepted. Open a fresh link from the laptop.' : `Could not send (${r.status}). Try again.`);
+    const r = await gistPatch(JSON.stringify({ files: { ['pay-' + py.id + '.json']: { content } } }));
+    if (!r.ok) throw new Error(r.status === 401 ? 'The GitHub key is not accepted. Ask the shop to press “Change key” on the laptop, then open this page again here.' : `Could not send (${r.status}). Try again.`);
     py.status = 'sent';
     save();
   }
@@ -610,9 +659,8 @@
     if (!data.sync || !data.sync.key) throw new Error('This phone is not connected for sending. Open the link from the laptop again.');
     if (!navigator.onLine) throw new Error('offline');
     const content = await self.StockCrypto.encrypt({ v: 1, id: py.id, date: py.date, sn: py.cn, amount: py.amount, method: py.method, note: py.note }, data.sync.pass);
-    const r = await fetch(GIST_API + data.sync.id, { method: 'PATCH', headers: { Authorization: 'Bearer ' + data.sync.key, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files: { ['sp-' + py.id + '.json']: { content } } }) });
-    if (!r.ok) throw new Error(r.status === 401 ? 'The key in the link is not accepted. Open a fresh link from the laptop.' : `Could not send (${r.status}). Try again.`);
+    const r = await gistPatch(JSON.stringify({ files: { ['sp-' + py.id + '.json']: { content } } }));
+    if (!r.ok) throw new Error(r.status === 401 ? 'The GitHub key is not accepted. Ask the shop to press “Change key” on the laptop, then open this page again here.' : `Could not send (${r.status}). Try again.`);
     py.status = 'sent';
     save();
   }
@@ -973,8 +1021,21 @@
     }
     renderStock(); renderUdhar(); renderKarz(); renderBill();
     const linked = readSyncLink();
-    if (data.sync) fetchOnline(linked).then((ok) => { if (linked && ok) toast('Connected. Stock loaded.'); });
+    const start = () => fetchOnline(linked).then((ok) => { if (linked && ok) toast('Connected. Stock loaded.'); });
+    if (data.sync) { backupSync(); start(); }
+    else restoreSync().then((back) => { if (back) { toast('Connection restored'); start(); } });
     window.addEventListener('online', () => { if (data.sync) fetchOnline(false); });
+    // keep the screen fresh by itself while the page is open: cheap check (nothing changed = nothing downloaded)
+    const idle = () => !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) && !document.querySelector('.sheet-wrap');
+    let refreshing = false;
+    const auto = async () => {
+      if (refreshing || !data.sync || document.visibilityState !== 'visible' || !navigator.onLine || !idle()) return;
+      refreshing = true;
+      try { await fetchOnline(false); } finally { refreshing = false; }
+    };
+    setInterval(() => { if (data.sync && data.sync.key) auto(); }, 8000);
+    setInterval(() => { if (data.sync && !data.sync.key) auto(); }, 90000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') auto(); });
     if (data.bills.some((x) => x.status === 'pending')) sendPending();
     window.__maalReady = true;
   }

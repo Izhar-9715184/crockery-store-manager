@@ -11,13 +11,13 @@ async function editProduct(p, done) {
   const cats = await rpc('listCategories');
   const isNew = !p;
   p = p || { name: '', code: '', category: '', unit: 'pcs', cost_price: '', sale_price: '', stock: '', min_stock: '' };
-  modal({
+  const pm = modal({
     title: isNew ? 'Add product' : 'Edit product',
     body: `<datalist id="cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
       <div class="form-grid">
         <label class="f full"><span>Product name *</span><input type="text" name="name" value="${esc(p.name)}" placeholder="e.g. Dinner Plate 10 inch"></label>
         <label class="f"><span>Code / barcode</span><input type="text" name="code" value="${esc(p.code || '')}"></label>
-        <label class="f"><span>Category</span><input type="text" name="category" list="cats" value="${esc(p.category || '')}" placeholder="e.g. Plates"></label>
+        <label class="f"><span>Category <a href="#" id="catManage" style="float:right;font-weight:600">Edit / delete</a></span><input type="text" name="category" list="cats" value="${esc(p.category || '')}" placeholder="e.g. Plates"></label>
         <label class="f"><span>Cost price (what you pay)</span><input type="number" name="cost_price" min="0" step="any" value="${p.cost_price}"></label>
         <label class="f"><span>Sale price</span><input type="number" name="sale_price" min="0" step="any" value="${p.sale_price}"></label>
         <label class="f"><span>Unit</span><select name="unit">${UNITS.map((u) => `<option ${u === p.unit ? 'selected' : ''}>${u}</option>`).join('')}</select></label>
@@ -46,6 +46,45 @@ async function editProduct(p, done) {
       },
     ],
   });
+  $('#catManage', pm.body).addEventListener('click', (e) => {
+    e.preventDefault();
+    manageCategories(async (renamedFrom, renamedTo) => {
+      const list = await rpc('listCategories');
+      $('#cats', pm.body).innerHTML = list.map((c) => `<option value="${esc(c)}">`).join('');
+      const inp = $('[name=category]', pm.body);
+      if (inp.value === renamedFrom) inp.value = renamedTo || '';
+    });
+  });
+}
+
+/** Window to fix a wrongly written category: rename it or delete it (products stay, only the category name goes). */
+async function manageCategories(onChange) {
+  const draw = async (m) => {
+    const list = await rpc('listCategoriesDetailed');
+    m.body.innerHTML = list.length
+      ? `<p class="muted small" style="margin-top:0">Change the name and press <b>Save</b>, or press <b>Delete</b>. Products are never deleted — they only lose / change this category.</p>
+         ${list.map((c, i) => `<div class="catrow" data-i="${i}" style="display:flex;gap:8px;align-items:center;margin:8px 0">
+           <input type="text" value="${esc(c.name)}" data-old="${esc(c.name)}" style="flex:1"><span class="muted small" style="min-width:70px">${c.count} product${c.count === 1 ? '' : 's'}</span>
+           <button class="btn sm teal" data-save>Save</button><button class="btn sm danger" data-del>Delete</button></div>`).join('')}`
+      : '<div class="empty">No categories yet.</div>';
+    m.body.querySelectorAll('.catrow').forEach((row) => {
+      const inp = $('input', row); const old = inp.dataset.old;
+      $('[data-save]', row).addEventListener('click', () => safe(async () => {
+        const to = inp.value.trim();
+        if (!to) return toast('Write the new name (or press Delete)', 'error');
+        if (to === old) return toast('The name is the same', 'error');
+        await rpc('renameCategory', { from: old, to });
+        toast('Category changed', 'ok'); if (onChange) await onChange(old, to); draw(m);
+      }));
+      $('[data-del]', row).addEventListener('click', () => safe(async () => {
+        if (!(await confirmBox(`Delete the category “${old}”? The products stay; they will just have no category.`, { okLabel: 'Delete', danger: true }))) return;
+        await rpc('deleteCategory', old);
+        toast('Category deleted', 'ok'); if (onChange) await onChange(old, ''); draw(m);
+      }));
+    });
+  };
+  const m = modal({ title: 'Edit / delete categories', body: '<div></div>', actions: [{ label: 'Close' }] });
+  await draw(m);
 }
 
 async function stockInDialog(p, done) {

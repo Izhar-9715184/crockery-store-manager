@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('sys', {
   folderStop: () => ipcRenderer.invoke('sys:folderStop'),
   stockSyncStatus: () => ipcRenderer.invoke('sys:stockSyncStatus'),
   stockSyncConnect: (token) => ipcRenderer.invoke('sys:stockSyncConnect', token),
+  stockSyncReplaceToken: (t) => ipcRenderer.invoke('sys:stockSyncReplaceToken', t),
+  onSyncImported: (cb) => ipcRenderer.on('sync-imported', () => cb()),
   stockSyncNow: () => ipcRenderer.invoke('sys:stockSyncNow'),
   stockSyncStop: () => ipcRenderer.invoke('sys:stockSyncStop'),
   stockSyncDismiss: (name) => ipcRenderer.invoke('sys:stockSyncDismiss', name),

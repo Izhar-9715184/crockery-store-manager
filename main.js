@@ -87,7 +87,8 @@ function start() {
   } catch (e) { log(`folder backup unavailable: ${e.message}`); }
   try {
     const { StockSync } = require('./src/cloud/stocksync');
-    stockSync = new StockSync({ service, store, dir: path.join(app.getPath('userData'), 'cloud'), log });
+    stockSync = new StockSync({ service, store, dir: path.join(app.getPath('userData'), 'cloud'), log,
+      onImported: () => { for (const w of BrowserWindow.getAllWindows()) { try { w.webContents.send('sync-imported'); } catch (_) { /* closing */ } } } });
   } catch (e) { log(`stock sync unavailable: ${e.message}`); }
   registerIpc();
   createWindow();
@@ -273,6 +274,7 @@ function registerIpc() {
   ipcMain.handle('sys:stockSyncConnect', (_e, token) => needSync().connect(token));
   ipcMain.handle('sys:stockSyncNow', () => needSync().push({ force: true }));
   ipcMain.handle('sys:stockSyncStop', () => needSync().stop());
+  ipcMain.handle('sys:stockSyncReplaceToken', (_e, token) => needSync().replaceToken(token));
   ipcMain.handle('sys:stockSyncDismiss', (_e, name) => needSync().dismissBill(name));
   ipcMain.handle('sys:stockSyncUdhar', (_e, on) => needSync().setUdhar(on));
   ipcMain.handle('sys:stockSyncWaiting', async () => { if (!stockSync) return []; await stockSync.poll().catch(() => {}); return stockSync.waitingList(); });

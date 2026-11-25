@@ -30,9 +30,10 @@ function friendly(e) {
 }
 
 class StockSync {
-  constructor({ service, store, dir, api = 'https://api.github.com', pagesUrl = PAGES, intervalMs = 20000, log } = {}) {
+  constructor({ service, store, dir, api = 'https://api.github.com', pagesUrl = PAGES, intervalMs = 3000, pollEvery = 4, onImported, log } = {}) {
     this.service = service; this.store = store; this.api = api; this.pagesUrl = pagesUrl; this.intervalMs = intervalMs;
     this.log = log || (() => {});
+    this.pollEvery = pollEvery; this.onImported = onImported || (() => {});
     fs.mkdirSync(dir, { recursive: true });
     this.file = path.join(dir, 'stocksync.json');
     this.s = this._load();
@@ -59,6 +60,8 @@ class StockSync {
         let out = '';
         res.on('data', (c) => { out += c; });
         res.on('end', () => {
+          const exp = res.headers && res.headers['github-authentication-token-expiration'];
+          if (token && exp && token === (this.s && this.s.token)) { if (this.s.tokenExp !== String(exp)) { this.s.tokenExp = String(exp); try { this._save(); } catch (_) { /* later */ } } }
           if (res.statusCode >= 200 && res.statusCode < 300) { try { resolve(JSON.parse(out || '{}')); } catch (_) { resolve({}); } }
           else { const e = new Error(`GitHub answered ${res.statusCode}`); e.status = res.statusCode; reject(e); }
         });
@@ -73,7 +76,14 @@ class StockSync {
   link() { return this.s.gistId ? `${this.pagesUrl}#sync=${this.s.gistId}.${this.s.pass}&key=${this.s.token}` : ''; }
   status() {
     return { state: !this.s.gistId ? 'off' : (this.s.lastError ? 'error' : 'ok'), lastOk: this.s.lastOk || null,
-      lastError: this.s.lastError || '', link: this.link(), products: this.s.count || 0, waiting: this.waiting.length, billErrors: this.billErrors.map((b) => ({ name: b.name, id: b.id, error: b.error, customer: b.customer, total: b.total })), udhar: this.s.udhar !== false };
+      lastError: this.s.lastError || '', link: this.link(), products: this.s.count || 0, waiting: this.waiting.length, billErrors: this.billErrors.map((b) => ({ name: b.name, id: b.id, error: b.error, customer: b.customer, total: b.total })), udhar: this.s.udhar !== false, ...this._expiry() };
+  }
+  /** GitHub tells us (in a header) when the token stops working. Shown so the owner can renew it before that. */
+  _expiry() {
+    if (!this.s.tokenExp) return { tokenExpires: null, tokenDaysLeft: null };
+    const t = Date.parse(String(this.s.tokenExp).replace(' UTC', 'Z').replace(' ', 'T'));
+    if (!Number.isFinite(t)) return { tokenExpires: null, tokenDaysLeft: null };
+    return { tokenExpires: new Date(t).toISOString(), tokenDaysLeft: Math.ceil((t - Date.now()) / 86400000) };
   }
 
   async _payload() {
@@ -86,6 +96,7 @@ class StockSync {
     if (this.s.udhar !== false) obj.karz = this.service.exportKarzForPhone();     // wholesalers we owe money to
     obj.sups = this.service.exportSupplierNamesForPhone();
     obj.custAll = this.service.exportCustomersForPhone(this.s.udhar !== false);   // for bills written on the phone
+    obj.key = this.s.token;   // the phone picks up a renewed token from here, so the link never has to be sent again
     obj.imported = this.service.importedBatchIds();
     obj.spaysDone = this.service.phoneSupplierPayIds();
     obj.paysDone = this.service.phonePaymentIds();   // payments taken on the phone that the laptop has counted
@@ -97,7 +108,8 @@ class StockSync {
   async connect(token) {
     token = String(token || '').trim();
     if (token.length < 20) throw new Error('Paste the GitHub token first');
-    this.s = { token, pass: randomPass() };
+    const old = this.s;
+    this.s = { token, pass: randomPass() };           // tried first; the old settings are put back if it fails
     try {
       const { content, count } = await this._payload();
       const g = await this._req('POST', '/gists', { description: 'Crockery shop stock (locked)', public: false, files: { [FILE]: { content } } }, token);
@@ -105,7 +117,27 @@ class StockSync {
       this.sentWrites = this.store.writes;
       this._save();
       return this.status();
-    } catch (e) { this.s = {}; throw new Error(friendly(e)); }
+    } catch (e) { this.s = old; throw new Error(friendly(e)); }
+  }
+
+  /**
+   * The GitHub token ran out (or the owner made a new one): put the new one in WITHOUT changing the link.
+   * The phone gets the new token by itself from the locked copy, so nothing has to be done on the phone.
+   */
+  async replaceToken(token) {
+    token = String(token || '').trim();
+    if (!this.s.gistId) throw new Error('Online stock is not connected yet');
+    if (token.length < 20) throw new Error('Paste the new GitHub token first');
+    const old = this.s.token; const oldExp = this.s.tokenExp;
+    this.s.token = token; this.s.tokenExp = '';
+    try {
+      const { content, count } = await this._payload();
+      await this._req('PATCH', `/gists/${this.s.gistId}`, { files: { [FILE]: { content } } }, token);
+      this.s.count = count; this.s.lastOk = new Date().toISOString(); this.s.lastError = '';
+      this.sentWrites = this.store.writes;
+      this._save();
+      return this.status();
+    } catch (e) { this.s.token = old; this.s.tokenExp = oldExp; throw new Error(friendly(e)); }
   }
 
   /** Sends the stock now (does nothing when nothing changed, unless force). */
@@ -189,7 +221,7 @@ class StockSync {
     if (Object.keys(remove).length) {
       try { await this._req('PATCH', `/gists/${this.s.gistId}`, { files: remove }, this.s.token); } catch (e) { /* removed next time */ }
     }
-    if (imported) await this.push({ force: true });
+    if (imported) { try { this.onImported(); } catch (_) { /* screen refresh only */ } await this.push({ force: true }); }
   }
   /** Remove a phone bill that cannot be made (the owner will write it again by hand if needed). */
   async dismissBill(name) {
@@ -214,12 +246,17 @@ class StockSync {
   }
   start() {
     if (this.timer) return;
+    // every few seconds: send what changed (a quick local check, nothing is sent when nothing changed);
+    // every 4th time also look for what the phone sent
     this.timer = setInterval(() => {
       this.tick++;
-      (this.tick % 3 === 0 ? this.poll() : Promise.resolve()).catch(() => {}).then(() => this.push()).catch(() => {});
+      if (this.ticking) return;
+      this.ticking = true;
+      (this.tick % this.pollEvery === 0 ? this.poll() : Promise.resolve()).catch(() => {}).then(() => this.push()).catch(() => {})
+        .then(() => { this.ticking = false; });
     }, this.intervalMs);
     if (this.timer.unref) this.timer.unref();
-    setTimeout(() => { this.poll().catch(() => {}).then(() => this.push({ force: true })).catch(() => {}); }, 8000).unref();
+    setTimeout(() => { this.poll().catch(() => {}).then(() => this.push({ force: true })).catch(() => {}); }, 4000).unref();
   }
   /** Last copy when the program is closed (max ~6 s). */
   async pushOnExit() {

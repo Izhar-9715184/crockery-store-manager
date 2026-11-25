@@ -78,6 +78,11 @@ async function boot() {
   } catch (e) {
     toast(e.message, 'error');
   }
+  // something arrived from the phone (bill, payment, purchase): show it at once on the screens that only list things
+  if (window.sys.onSyncImported) window.sys.onSyncImported(() => {
+    const busy = modalStack.length || (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
+    if (!busy && ['dashboard', 'sales', 'products', 'customers', 'suppliers'].includes(App.current)) App.go(App.current);
+  });
   await App.go('dashboard');
   window.__appReady = true; // used by the automatic start-up check
 }
